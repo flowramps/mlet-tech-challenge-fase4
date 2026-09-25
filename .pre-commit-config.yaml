@@ -1,0 +1,24 @@
+# Instalar com `poetry run pre-commit install` (o alvo `make install` já faz isso).
+#
+# Manter a versão do ruff idêntica à do `ci.yml` e à do grupo `dev` do pyproject: versões
+# divergentes produzem o clássico "passa local, falha no CI" por regra nova ou formatação
+# diferente.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      # Barreira contra commitar dataset ou artefato de modelo por engano — eles são
+      # reproduzíveis por `make train` e não devem entrar no git.
+      - id: check-added-large-files
+        args: [--maxkb=1024]
