@@ -39,6 +39,22 @@ def test_linhas_reprovadas_nao_soma_duas_vezes_a_mesma_linha():
     assert resultado.linhas_reprovadas == 4
 
 
+def test_linhas_reprovadas_e_piso_quando_duas_violacoes_nao_tem_indice():
+    # Duas regras de lote inteiro (sem índice de linha) não têm como provar que cobrem
+    # linhas diferentes. Somar 100 + 50 arriscaria contar a mesma linha duas vezes; a
+    # propriedade devolve o maior valor defensável — um piso, não a contagem exata — e
+    # este teste fixa esse comportamento para que um refactor não o troque em silêncio.
+    resultado = ValidationResult(
+        total=200,
+        violacoes=(
+            Violacao(regra="sem_duplicatas", coluna="*", linhas=100),
+            Violacao(regra="outra_regra_de_lote", coluna="*", linhas=50),
+        ),
+    )
+
+    assert resultado.linhas_reprovadas == 100
+
+
 def test_erguer_falha_quando_ha_violacao():
     resultado = ValidationResult(total=10, violacoes=(Violacao(regra="r", coluna="c", linhas=1),))
 

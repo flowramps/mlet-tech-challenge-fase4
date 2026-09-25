@@ -48,9 +48,10 @@ REGRAS: tuple[Regra, ...] = (
         coluna="age",
         descricao=f"age entre {IDADE_MINIMA} e {IDADE_MAXIMA}",
         motivo=(
-            "Concessão de crédito a menor de idade é vedada, e o arquivo bruto traz um "
-            "registro com idade 0. O teto de 110 barra erro de digitação sem reprovar "
-            "cliente idoso legítimo (a idade máxima observada é 109)."
+            "Concessão de crédito a menor de idade é vedada, e o intervalo de age "
+            "observado no arquivo bruto vai de 0 a 109 — o mesmo levantamento que "
+            "encontrou o registro com idade 0 encontrou o extremo superior. O teto de "
+            "110 barra erro de digitação sem reprovar esse cliente idoso legítimo."
         ),
     ),
     Regra(
