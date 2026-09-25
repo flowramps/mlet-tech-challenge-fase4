@@ -99,7 +99,7 @@ def separar(
 ) -> dict[str, pd.DataFrame]:
     """Separa em treino, validação e teste, estratificando pelo alvo.
 
-    Com 6,95% de positivos, um corte aleatório sem estratificação pode variar a proporção
+    Com 6,89% de positivos, um corte aleatório sem estratificação pode variar a proporção
     da classe rara o bastante para mover a métrica mais que o próprio modelo.
     """
     resto, teste = train_test_split(
