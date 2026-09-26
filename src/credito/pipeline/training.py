@@ -13,6 +13,7 @@ import sys
 from typing import Any
 
 from credito.config import get_settings
+from credito.contracts.base import ContratoViolado
 from credito.contracts.pandera_backend import construir_validador
 from credito.data.arff import ler_arff
 from credito.data.download import baixar_dataset
@@ -153,6 +154,14 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Ponto de entrada do ``make train``.
+
+    Os três desfechos de interrupção do pipeline saem daqui como uma linha legível, nunca
+    como traceback: quem lê o log de um run agendado precisa da causa, e um traceback
+    esconde a causa no meio da pilha. ``ContratoViolado`` é o que tem mais a perder nisso —
+    a mensagem carrega o relatório inteiro de violações, que é justamente o que a camada de
+    contrato existe para produzir.
+    """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         resumo = executar_pipeline()
@@ -165,6 +174,12 @@ def main() -> None:
         # Defeito: sai com código diferente de zero, mas com uma linha legível em vez de
         # um traceback — a causa já está no histórico e no texto do motivo.
         logger.error("gate de qualidade reprovou o candidato: %s", erro)
+        sys.exit(1)
+    except ContratoViolado as erro:
+        # O dado foi recusado na porta e nada chegou a ser treinado. Também é defeito e
+        # também falha o run, mas a causa está no upstream, não no modelo — por isso a
+        # mensagem separa os dois casos em vez de dizer só "o run falhou".
+        logger.error("contrato de dados reprovou a Referência: %s", erro)
         sys.exit(1)
     logger.info("promovido: %s", resumo["candidato"])
 

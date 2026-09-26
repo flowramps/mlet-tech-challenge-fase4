@@ -28,7 +28,14 @@ def main() -> int:
     print("\n=== Lote da Referência (limpo) ===")
     limpo = validador.validar(amostra)
     print(f"linhas: {limpo.total} | válido: {limpo.valido}")
-    limpo.erguer()
+    try:
+        limpo.erguer()
+    except ContratoViolado as erro:
+        # Este é o desfecho que a demonstração não espera: a Referência reprovando no
+        # próprio contrato significa que limpeza e contrato divergiram. Vale mais do que
+        # um traceback — é o relatório de violações que diz qual regra abriu a divergência.
+        print(f"\nERRO: a Referência não passa no próprio contrato: {erro}")
+        return 1
     print("ingestão liberada")
 
     print("\n=== Lote adulterado ===")

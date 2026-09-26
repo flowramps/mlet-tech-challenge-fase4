@@ -4,6 +4,7 @@ linhas: ele valida o encadeamento e os desfechos, não a qualidade do modelo."""
 from __future__ import annotations
 
 import json
+import logging
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,7 @@ import pytest
 from credito.contracts.base import ContratoViolado, ValidationResult, Violacao
 from credito.model.train import carregar_modelo
 from credito.pipeline.steps import ModelNotPromoted, QualityGateError
-from credito.pipeline.training import executar_pipeline
+from credito.pipeline.training import executar_pipeline, main
 
 
 @pytest.fixture
@@ -217,3 +218,41 @@ def test_piso_violado_falha_o_run_e_nao_publica(ambiente, monkeypatch):
     )
     assert len(linhas) == 1
     assert json.loads(linhas[0])["promovido"] is False
+
+
+@pytest.mark.parametrize(
+    ("erro", "codigo_de_saida"),
+    [
+        (ModelNotPromoted("auc_pr 0.3716 não supera o modelo em produção (0.3716)"), None),
+        (QualityGateError("auc_pr 0.3716 abaixo do piso 0.9900"), 1),
+        (
+            ContratoViolado("5 de 500 linha(s) reprovadas — renda_nao_nula (MonthlyIncome)"),
+            1,
+        ),
+    ],
+)
+def test_main_converte_cada_interrupcao_numa_linha_legivel(
+    monkeypatch, caplog, erro, codigo_de_saida
+):
+    """Nenhuma das três formas de o pipeline parar pode escapar como traceback.
+
+    `ContratoViolado` era a que faltava, e era a que mais custava: a mensagem dela carrega
+    o relatório de violações inteiro — exatamente o que a camada de contrato existe para
+    produzir — e um traceback o enterraria no meio da pilha. Verificado removendo o
+    `except ContratoViolado` de `main`: só o caso do contrato fica vermelho.
+    """
+
+    def _interrompe(**_):
+        raise erro
+
+    monkeypatch.setattr("credito.pipeline.training.executar_pipeline", _interrompe)
+
+    with caplog.at_level(logging.INFO):
+        if codigo_de_saida is None:
+            main()
+        else:
+            with pytest.raises(SystemExit) as saida:
+                main()
+            assert saida.value.code == codigo_de_saida
+
+    assert str(erro) in caplog.text
