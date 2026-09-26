@@ -53,10 +53,15 @@ REGRAS: tuple[Regra, ...] = (
     Regra(
         nome="sem_duplicatas",
         coluna="*",
-        descricao="o lote não pode conter linhas idênticas",
+        descricao="o lote não pode repetir uma linha nas colunas do contrato",
         motivo=(
-            "609 linhas do arquivo bruto são duplicatas exatas. Duplicata infla o peso de "
-            "um perfil no treino e distorce qualquer contagem de distribuição."
+            "646 linhas do arquivo bruto repetem outra nas colunas do contrato; 609 "
+            "repetem a linha inteira, alvo incluído. A comparação é feita sobre as "
+            "colunas do contrato porque é só o que a ingestão enxerga — olhar o lote "
+            "inteiro faria a regra se desligar diante de qualquer coluna extra única por "
+            "linha, e a predição que o lote de produção carrega é exatamente isso. "
+            "Duplicata infla o peso de um perfil no treino e distorce qualquer contagem "
+            "de distribuição."
         ),
     ),
     Regra(

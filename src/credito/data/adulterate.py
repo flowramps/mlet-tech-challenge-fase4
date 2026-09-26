@@ -57,7 +57,8 @@ def adulterar(frame: pd.DataFrame, *, seed: int, por_defeito: int = 5) -> pd.Dat
     # Dívida bruta no lugar da razão — o que acontece quando a renda falta.
     sujo.loc[razao, "DebtRatio"] = 1159.0
 
-    # Duplicatas: 609 no arquivo bruto. Entram como cópia da âncora reservada, que
+    # Duplicatas: 646 linhas do bruto repetem outra nas colunas do contrato. Entram como
+    # cópia da âncora reservada, que
     # continua limpa — a linha nova viola só "sem_duplicatas", nunca mais nada.
     copias = sujo.loc[ancora].copy()
     return pd.concat([sujo, copias], ignore_index=True)

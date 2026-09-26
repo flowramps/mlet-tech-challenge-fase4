@@ -76,6 +76,59 @@ def test_duplicata_e_reprovada():
     assert 3 in violacoes_duplicata[0].indices
 
 
+def test_duplicata_e_reprovada_mesmo_com_coluna_extra_unica():
+    # A regressão que mais importa aqui: com o dedup olhando o lote inteiro, qualquer
+    # coluna única por linha desligava a regra em silêncio — e a predição, que o lote de
+    # produção carrega, é única por linha por construção. O mesmo lote do teste acima, com
+    # uma coluna de predição junto, precisa continuar reprovando.
+    lote = _lote(3)
+    com_duplicata = pd.concat([lote, lote.iloc[[0]]], ignore_index=True)
+    com_duplicata["predicao"] = [0.11, 0.22, 0.33, 0.44]
+
+    resultado = construir_validador().validar(com_duplicata)
+
+    violacoes_duplicata = [v for v in resultado.violacoes if v.regra == "sem_duplicatas"]
+    assert len(violacoes_duplicata) == 1
+    assert violacoes_duplicata[0].indices == (3,)
+
+
+def test_lote_com_coluna_extra_e_aceito():
+    # O que `strict=False` compra, dito por um teste em vez de só por um comentário:
+    # o lote de produção chega com predição e, quando existe, com o alvo. O contrato exige
+    # presença das colunas que ele conhece, não exclusividade. Com `strict=True` este lote
+    # seria recusado por trazer informação a mais — e a Etapa 2 não conseguiria validar
+    # nada que já tivesse sido pontuado.
+    lote = _lote()
+    lote["predicao"] = [0.1, 0.2, 0.3, 0.4, 0.5]
+    lote["inadimplente"] = [0, 0, 1, 0, 0]
+
+    assert construir_validador().validar(lote).valido is True
+
+
+def test_coluna_repetida_e_reprovada():
+    # O par do teste acima: `strict=False` aceita coluna a mais, `unique_column_names=True`
+    # recusa coluna repetida. Sem a segunda flag, um `age` duplicado passa em silêncio e
+    # qualquer leitura por nome de coluna passa a devolver um frame onde se esperava uma
+    # série — verificado desligando a flag: o lote abaixo era aceito.
+    lote = _lote()
+    repetida = pd.concat([lote, lote[["age"]]], axis=1)
+
+    assert construir_validador().validar(repetida).valido is False
+
+
+def test_coluna_ausente_aponta_o_lote_inteiro():
+    # `coluna_ausente` é a única violação do contrato sem índice de linha: não há linha
+    # culpada quando o upstream deixou de mandar a coluna. O piso defensável é o lote
+    # inteiro, e é disso que a docstring de `linhas_reprovadas` fala.
+    lote = _lote()
+    resultado = construir_validador().validar(lote.drop(columns=["MonthlyIncome"]))
+
+    violacao = next(v for v in resultado.violacoes if v.regra == "coluna_ausente")
+    assert violacao.indices == ()
+    assert violacao.linhas == len(lote)
+    assert resultado.linhas_reprovadas == len(lote)
+
+
 def test_lote_com_drift_passa_no_contrato():
     # O ponto central da fase: renda 60% maior e endividamento em dobro deslocam a
     # distribuição sem tornar nenhum registro inválido. Se este teste ficasse vermelho, o

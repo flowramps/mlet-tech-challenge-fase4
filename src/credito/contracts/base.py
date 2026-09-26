@@ -52,9 +52,11 @@ class ValidationResult:
     def linhas_reprovadas(self) -> int:
         """Linhas distintas reprovadas — uma linha que viola duas regras conta uma vez.
 
-        A contagem é exata quando toda ``Violacao`` carrega ``indices``. Algumas regras
-        avaliam o lote inteiro — duplicata exata é a única do contrato hoje — e não têm
-        como apontar para uma linha específica; quando alguma violação chega assim, sem
+        A contagem é exata quando toda ``Violacao`` carrega ``indices``. Duplicata exata é
+        avaliada sobre o lote inteiro mas ainda aponta as linhas repetidas; a única
+        violação do contrato hoje que chega sem índice é ``coluna_ausente``, porque não há
+        linha culpada quando o upstream deixou de mandar a coluna — o defeito é do lote, e
+        ela chega com ``linhas`` igual ao total. Quando alguma violação chega assim, sem
         índice, o retorno vira um **piso**: o maior valor defensável sem inventar índice
         que a biblioteca de validação nunca forneceu. Duas violações sem índice não se
         somam por isso — não há como saber se cobrem linhas distintas ou as mesmas, e

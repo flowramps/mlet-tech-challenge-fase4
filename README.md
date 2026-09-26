@@ -125,7 +125,7 @@ são declaradas uma única vez em `rules.py`, independentes de biblioteca, e o e
 |---|---|---|---|
 | `renda_nao_nula` | `MonthlyIncome` | não nula, `>= 0` | 29.731 linhas (19,82%) sem renda; 90,04% delas com `DebtRatio > 10` |
 | `idade_plausivel` | `age` | entre 18 e 110 | `age` no bruto vai de **0 a 109**; 1 linha abaixo de 18 |
-| `sem_duplicatas` | lote inteiro | sem linhas idênticas | 609 duplicatas exatas de linha inteira; 646 considerando só as *features* |
+| `sem_duplicatas` | colunas do contrato | sem repetição nas colunas do contrato | 646 linhas repetem outra nas colunas do contrato; 609 repetem a linha inteira, alvo incluído |
 | `atraso_plausivel` | 3 colunas de atraso | `<= 20` | 269 linhas com os sentinelas 96 e 98 |
 | `dependentes_nao_nulo` | `NumberOfDependents` | não nula, `>= 0` | 3.924 linhas (2,62%), 100% delas também sem renda |
 | `razao_divida_plausivel` | `DebtRatio` | entre 0 e 10 | rede de segurança: mesmo com renda válida, 1,75% ainda passam de 10 |

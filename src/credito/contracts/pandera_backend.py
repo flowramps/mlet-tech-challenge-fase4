@@ -111,6 +111,21 @@ def _schema() -> pa.DataFrameSchema:
     for coluna in COLUNAS_DE_ATRASO:
         colunas[coluna] = _coluna_de_atraso()
 
+    nomes_do_contrato = tuple(colunas)
+
+    def _sem_duplicatas(frame: pd.DataFrame) -> pd.Series:
+        """Duplicata é avaliada só sobre as colunas do contrato, nunca sobre o lote inteiro.
+
+        Deduplicar o frame inteiro faz a regra se desligar sozinha diante de qualquer
+        coluna extra única por linha — e a predição, que o lote de produção carrega, é
+        única por linha praticamente por construção. O resultado seria uma regra que
+        continua no schema, continua aparecendo na documentação e não reprova mais nada,
+        sem nada ficar vermelho. Restringir às colunas do contrato também alinha esta
+        checagem ao dedup da limpeza da Referência, que já olha só para as ``FEATURES``.
+        """
+        presentes = [nome for nome in nomes_do_contrato if nome in frame.columns]
+        return ~frame[presentes].duplicated()
+
     return pa.DataFrameSchema(
         colunas,
         # `strict=False` porque o lote de produção carrega a predição e a coluna de alvo
@@ -119,7 +134,7 @@ def _schema() -> pa.DataFrameSchema:
         unique_column_names=True,
         # A regra de duplicata é do lote inteiro, não de uma coluna.
         checks=pa.Check(
-            lambda frame: ~frame.duplicated(),
+            _sem_duplicatas,
             name=_NOME_CHECAGEM_DUPLICATA,
             element_wise=False,
         ),
