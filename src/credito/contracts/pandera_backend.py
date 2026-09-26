@@ -1,0 +1,172 @@
+"""Execução do contrato com Pandera.
+
+O schema é montado a partir de ``rules.REGRAS`` e os nomes das colunas espelham os nomes
+das regras: um relatório de violação cita a mesma palavra que a documentação, e a
+rastreabilidade entre o que falhou e o porquê não depende de ninguém manter duas listas
+em sincronia.
+
+``lazy=True`` é essencial: sem ele o Pandera para na primeira falha, e quem está corrigindo
+um lote precisa ver todos os problemas de uma vez.
+
+Uma observação empírica (Pandera 0.33.1) mudou o desenho do conversor abaixo em relação a
+uma abordagem ingênua: o ``name=`` passado a um ``Check`` de **coluna** não aparece em
+``failure_cases["check"]`` — essa coluna traz a representação genérica do check
+(``"in_range(18, 110)"``, ``"not_nullable"``), nunca o nome customizado. Só o ``name=`` de
+um ``Check`` de **DataFrame inteiro** (o de duplicata) sobrevive ali. Por isso o
+mapeamento de nome de regra para violação de coluna é feito por **nome de coluna**
+(``_REGRA_POR_COLUNA``), não por texto do check; o mapeamento por nome de check
+(``_REGRA_POR_CHECAGEM_DE_LOTE``) é reservado para as checagens de lote inteiro, onde o
+nome realmente aparece — e ainda assim fica explícito aqui, em vez de reaproveitar
+``failure_cases["check"]`` diretamente, para que uma mudança de versão do Pandera que pare
+de preservar esse nome quebre um teste em vez de renomear a regra em silêncio.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+import pandera.pandas as pa
+
+from credito.contracts.base import ValidationResult, Validator, Violacao
+from credito.contracts.rules import DEBT_RATIO_MAXIMO
+from credito.data.prepare import (
+    ATRASO_MAXIMO_PLAUSIVEL,
+    COLUNAS_DE_ATRASO,
+    IDADE_MAXIMA,
+    IDADE_MINIMA,
+)
+
+_NOME_CHECAGEM_DUPLICATA = "sem_duplicatas"
+_CHECAGEM_COLUNA_AUSENTE = "column_in_dataframe"
+
+# Uma regra por coluna: nesse schema nenhuma coluna carrega duas regras diferentes, então
+# o nome de coluna já identifica a regra sem ambiguidade — o que salva o conversor de
+# precisar decifrar o texto do check (ver docstring do módulo).
+_REGRA_POR_COLUNA: dict[str, str] = {
+    "MonthlyIncome": "renda_nao_nula",
+    "age": "idade_plausivel",
+    "DebtRatio": "razao_divida_plausivel",
+    "NumberOfDependents": "dependentes_nao_nulo",
+    **dict.fromkeys(COLUNAS_DE_ATRASO, "atraso_plausivel"),
+}
+
+# Mapeamento explícito e pinado por teste: mesmo o nome de uma checagem de lote inteiro
+# sobrevivendo hoje em ``failure_cases["check"]`` é comportamento observado desta versão
+# do Pandera, não uma garantia da API. Passar pelo dicionário em vez de usar o texto do
+# check diretamente é o que torna essa dependência visível e testável.
+_REGRA_POR_CHECAGEM_DE_LOTE: dict[str, str] = {
+    _NOME_CHECAGEM_DUPLICATA: "sem_duplicatas",
+}
+
+
+def _coluna_de_atraso() -> pa.Column:
+    return pa.Column(
+        int,
+        checks=pa.Check.in_range(0, ATRASO_MAXIMO_PLAUSIVEL, name="atraso_plausivel"),
+        nullable=False,
+        coerce=True,
+    )
+
+
+def _schema() -> pa.DataFrameSchema:
+    colunas: dict[str, pa.Column] = {
+        "RevolvingUtilizationOfUnsecuredLines": pa.Column(float, nullable=False, coerce=True),
+        "age": pa.Column(
+            int,
+            checks=pa.Check.in_range(IDADE_MINIMA, IDADE_MAXIMA, name="idade_plausivel"),
+            nullable=False,
+            coerce=True,
+        ),
+        "DebtRatio": pa.Column(
+            float,
+            checks=pa.Check.in_range(0.0, DEBT_RATIO_MAXIMO, name="razao_divida_plausivel"),
+            nullable=False,
+            coerce=True,
+        ),
+        "MonthlyIncome": pa.Column(
+            float,
+            checks=pa.Check.ge(0.0, name="renda_nao_nula"),
+            nullable=False,
+            coerce=True,
+        ),
+        "NumberOfOpenCreditLinesAndLoans": pa.Column(int, nullable=False, coerce=True),
+        "NumberRealEstateLoansOrLines": pa.Column(int, nullable=False, coerce=True),
+        "NumberOfDependents": pa.Column(
+            float,
+            checks=pa.Check.ge(0.0, name="dependentes_nao_nulo"),
+            nullable=False,
+            coerce=True,
+        ),
+    }
+    for coluna in COLUNAS_DE_ATRASO:
+        colunas[coluna] = _coluna_de_atraso()
+
+    return pa.DataFrameSchema(
+        colunas,
+        # `strict=False` porque o lote de produção carrega a predição e a coluna de alvo
+        # quando existe; o contrato exige presença, não exclusividade.
+        strict=False,
+        unique_column_names=True,
+        # A regra de duplicata é do lote inteiro, não de uma coluna.
+        checks=pa.Check(
+            lambda frame: ~frame.duplicated(),
+            name=_NOME_CHECAGEM_DUPLICATA,
+            element_wise=False,
+        ),
+    )
+
+
+class PanderaValidator:
+    """Implementação de :class:`credito.contracts.base.Validator` sobre Pandera."""
+
+    def __init__(self) -> None:
+        self._schema = _schema()
+
+    def validar(self, frame: pd.DataFrame) -> ValidationResult:
+        try:
+            self._schema.validate(frame, lazy=True)
+        except pa.errors.SchemaErrors as erros:
+            return ValidationResult(
+                total=len(frame), violacoes=self._converter(erros, total=len(frame))
+            )
+        return ValidationResult(total=len(frame), violacoes=())
+
+    @staticmethod
+    def _converter(erros: pa.errors.SchemaErrors, *, total: int) -> tuple[Violacao, ...]:
+        relatorio = erros.failure_cases
+        violacoes: list[Violacao] = []
+
+        estrutural = relatorio[relatorio["check"] == _CHECAGEM_COLUNA_AUSENTE]
+        for coluna_ausente in estrutural["failure_case"].unique():
+            # Coluna ausente é um problema de contrato — nenhuma linha individual pode
+            # ser apontada como culpada, então o piso defensável é "todo o lote".
+            violacoes.append(
+                Violacao(regra="coluna_ausente", coluna=str(coluna_ausente), linhas=total)
+            )
+
+        por_coluna = relatorio[relatorio["schema_context"] == "Column"]
+        for coluna, grupo in por_coluna.groupby("column", sort=True):
+            nome_coluna = str(coluna)
+            regra = _REGRA_POR_COLUNA.get(nome_coluna, nome_coluna)
+            indices = tuple(sorted({int(valor) for valor in grupo["index"].dropna()}))
+            violacoes.append(
+                Violacao(regra=regra, coluna=nome_coluna, linhas=len(indices), indices=indices)
+            )
+
+        por_lote = relatorio[
+            (relatorio["schema_context"] == "DataFrameSchema")
+            & (relatorio["check"] != _CHECAGEM_COLUNA_AUSENTE)
+        ]
+        for checagem, grupo in por_lote.groupby("check", sort=True):
+            nome_checagem = str(checagem)
+            regra = _REGRA_POR_CHECAGEM_DE_LOTE.get(nome_checagem, nome_checagem)
+            indices = tuple(sorted({int(valor) for valor in grupo["index"].dropna()}))
+            violacoes.append(
+                Violacao(regra=regra, coluna="*", linhas=len(indices), indices=indices)
+            )
+
+        return tuple(violacoes)
+
+
+def construir_validador() -> Validator:
+    """Ponto único de construção — quem valida não importa a implementação."""
+    return PanderaValidator()
