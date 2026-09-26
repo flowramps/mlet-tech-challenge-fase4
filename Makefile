@@ -1,6 +1,6 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
-.PHONY: help install lint format test data train
+.PHONY: help install lint format test data train demo-contrato
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -26,3 +26,6 @@ data:             ## Baixa o dataset público
 
 train:            ## Treina os candidatos, avalia e promove o campeão
 	poetry run python -m credito.pipeline.training
+
+demo-contrato:    ## Demonstra o contrato bloqueando um lote defeituoso
+	poetry run python scripts/demo_contrato.py
