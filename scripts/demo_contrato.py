@@ -22,23 +22,8 @@ def main() -> int:
     settings = get_settings()
 
     referencia, _ = limpar(ler_arff(settings.dataset_path))
-    candidatos = referencia[list(FEATURES)]
+    amostra = referencia[list(FEATURES)].head(500)
     validador = construir_validador()
-
-    # `limpar()` não impõe o teto de DebtRatio — essa é uma rede de segurança só do
-    # contrato (ver rules.py) — nem deduplica apenas por FEATURES (o dedup roda sobre
-    # alvo+features juntos). Por isso a referência crua ainda carrega uma fração residual
-    # que reprovaria a ingestão: 2.106 das 120.024 linhas por razao_divida_plausivel e 1
-    # por sem_duplicatas quando só as FEATURES são olhadas. A amostra "limpa" da
-    # demonstração descarta essas linhas residuais antes de fatiar, para mostrar um lote
-    # que de fato passa pelo contrato — não um lote que passou por outro filtro e calhou
-    # de não bater com este.
-    residuais = {
-        indice
-        for violacao in validador.validar(candidatos).violacoes
-        for indice in violacao.indices
-    }
-    amostra = candidatos.drop(index=sorted(residuais)).head(500).reset_index(drop=True)
 
     print("\n=== Lote da Referência (limpo) ===")
     limpo = validador.validar(amostra)

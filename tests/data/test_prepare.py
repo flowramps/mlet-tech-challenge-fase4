@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from credito.contracts.pandera_backend import construir_validador
 from credito.data.prepare import ALVO, FEATURES, limpar, separar
 
 
@@ -27,7 +28,9 @@ def _linha(**ajustes) -> dict:
 
 
 def test_alvo_vira_inteiro_binario():
-    frame = pd.DataFrame([_linha(), _linha(FinancialDistressNextTwoYears="Yes")])
+    # age varia entre as duas linhas para que elas não sejam duplicata uma da outra em
+    # FEATURES — o que este teste quer isolar é a conversão do alvo, não o dedup.
+    frame = pd.DataFrame([_linha(), _linha(age=50, FinancialDistressNextTwoYears="Yes")])
 
     limpo, _ = limpar(frame)
 
@@ -89,6 +92,54 @@ def test_descarta_dependentes_nulo():
     assert motivos["dependentes_nulo"] == 1
 
 
+def test_descarta_razao_divida_implausivel():
+    # Rede de segurança para quando a renda vem preenchida mas o DebtRatio ainda assim é
+    # implausível — o mesmo teto que o contrato de ingestão aplica.
+    frame = pd.DataFrame([_linha(), _linha(DebtRatio=15.0)])
+
+    limpo, motivos = limpar(frame)
+
+    assert len(limpo) == 1
+    assert motivos["razao_divida_implausivel"] == 1
+
+
+def test_descarta_duplicata_por_features_mesmo_com_alvo_diferente():
+    # Duas aplicações idênticas em FEATURES com desfechos diferentes não são duas
+    # observações — são um conflito de rótulo. O dedup por FEATURES resolve isso mantendo
+    # a primeira ocorrência, a mesma convenção do `Check` de duplicata do contrato.
+    frame = pd.DataFrame([_linha(), _linha(FinancialDistressNextTwoYears="Yes")])
+
+    limpo, motivos = limpar(frame)
+
+    assert len(limpo) == 1
+    assert motivos["duplicata"] == 1
+    assert limpo[ALVO].iloc[0] == 0
+
+
+def test_referencia_limpa_passa_no_proprio_contrato():
+    # A invariante que sustenta o projeto: dado que seria bloqueado na porta não pode ter
+    # ensinado o modelo. Não é um teste de escala — roda numa amostra sintética que
+    # carrega uma instância de cada defeito que `limpar()` precisa descartar, e verifica
+    # que o que sobra passa no contrato de ingestão de verdade, não apenas nos descartes
+    # testados um a um acima.
+    frame = pd.DataFrame(
+        [
+            _linha(),
+            _linha(),
+            _linha(FinancialDistressNextTwoYears="Yes"),
+            _linha(MonthlyIncome=None),
+            _linha(NumberOfDependents=None),
+            _linha(age=15),
+            _linha(**{"NumberOfTimes90DaysLate": 98}),
+            _linha(DebtRatio=15.0),
+        ]
+    )
+
+    limpo, _ = limpar(frame)
+
+    assert construir_validador().validar(limpo[list(FEATURES)]).valido is True
+
+
 def test_referencia_sai_com_as_features_esperadas():
     limpo, _ = limpar(pd.DataFrame([_linha()]))
 
@@ -96,9 +147,20 @@ def test_referencia_sai_com_as_features_esperadas():
 
 
 def test_separacao_e_estratificada_e_reprodutivel():
+    # RevolvingUtilizationOfUnsecuredLines varia por grupo e por linha para que nenhuma
+    # linha do grupo positivo seja duplicata em FEATURES de uma do grupo negativo — as
+    # faixas de age dos dois grupos se sobrepõem (30..49), e sem essa variação o dedup
+    # por FEATURES colapsaria as 20 linhas positivas nas 20 negativas de mesma idade.
     frame = pd.DataFrame(
-        [_linha(age=30 + i) for i in range(80)]
-        + [_linha(age=30 + i, FinancialDistressNextTwoYears="Yes") for i in range(20)]
+        [_linha(age=30 + i, RevolvingUtilizationOfUnsecuredLines=0.1 + i * 1e-4) for i in range(80)]
+        + [
+            _linha(
+                age=30 + i,
+                RevolvingUtilizationOfUnsecuredLines=0.5 + i * 1e-4,
+                FinancialDistressNextTwoYears="Yes",
+            )
+            for i in range(20)
+        ]
     )
     limpo, _ = limpar(frame)
 

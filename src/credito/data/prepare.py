@@ -46,6 +46,14 @@ IDADE_MAXIMA = 110
 # dias, e qualquer estatística de distribuição sairia distorcida por 269 registros.
 ATRASO_MAXIMO_PLAUSIVEL = 20
 
+# A razão dívida/renda plausível: entre os registros com renda declarada, o p95 medido é
+# 1,1. O teto de 10 é uma ordem de grandeza acima disso — generoso o bastante para não
+# reprovar caso atípico legítimo, apertado o bastante para barrar o defeito conhecido.
+# Definida aqui, não em `contracts/rules.py`, porque a limpeza da Referência e o contrato
+# de ingestão precisam da mesma constante — e só há uma direção de import possível entre
+# os dois módulos sem criar um ciclo (rules.py já importa daqui).
+DEBT_RATIO_MAXIMO = 10.0
+
 
 def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     """Aplica a política de qualidade e devolve os dados limpos e a contagem por motivo."""
@@ -56,8 +64,14 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
         trabalho[ALVO] = (trabalho[_ALVO_ORIGINAL] == "Yes").astype(int)
         trabalho = trabalho.drop(columns=[_ALVO_ORIGINAL])
 
+    # O dedup olha só para FEATURES, não para a linha inteira: o contrato de ingestão
+    # nunca vê o alvo, então duas linhas idênticas em FEATURES mas com alvo diferente já
+    # passariam pelo contrato como duplicata mesmo que a limpeza as tratasse como
+    # observações distintas. E duas aplicações idênticas com desfechos contraditórios não
+    # são duas observações — são um conflito de rótulo, que este dedup também resolve
+    # (mantendo a primeira ocorrência, na mesma convenção do `Check` do contrato).
     antes = len(trabalho)
-    trabalho = trabalho.drop_duplicates()
+    trabalho = trabalho.drop_duplicates(subset=list(FEATURES))
     motivos["duplicata"] = antes - len(trabalho)
 
     def _descartar(mascara: pd.Series, rotulo: str) -> None:
@@ -85,6 +99,16 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
         sentinela |= trabalho[coluna] > ATRASO_MAXIMO_PLAUSIVEL
     _descartar(sentinela, "atraso_sentinela")
 
+    # Rede de segurança para quando a renda vem preenchida mas o DebtRatio ainda assim é
+    # implausível: entre as linhas que sobram depois dos descartes acima (renda já
+    # presente), 1,75% ficam fora de [0, DEBT_RATIO_MAXIMO]. É o mesmo teto que o
+    # contrato de ingestão aplica — a mesma constante importada, não reafirmada — para
+    # que limpeza e contrato nunca divirjam sobre o que é uma razão de dívida aceitável.
+    _descartar(
+        ~trabalho["DebtRatio"].between(0.0, DEBT_RATIO_MAXIMO),
+        "razao_divida_implausivel",
+    )
+
     limpo = trabalho[[ALVO, *FEATURES]].reset_index(drop=True)
     logger.info("referência com %d linhas; descartes: %s", len(limpo), motivos)
     return limpo, motivos
@@ -99,7 +123,7 @@ def separar(
 ) -> dict[str, pd.DataFrame]:
     """Separa em treino, validação e teste, estratificando pelo alvo.
 
-    Com 6,89% de positivos, um corte aleatório sem estratificação pode variar a proporção
+    Com 6,94% de positivos, um corte aleatório sem estratificação pode variar a proporção
     da classe rara o bastante para mover a métrica mais que o próprio modelo.
     """
     resto, teste = train_test_split(

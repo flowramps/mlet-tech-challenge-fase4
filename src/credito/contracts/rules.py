@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from credito.data.prepare import (
     ATRASO_MAXIMO_PLAUSIVEL,
     COLUNAS_DE_ATRASO,
+    DEBT_RATIO_MAXIMO,
     IDADE_MAXIMA,
     IDADE_MINIMA,
 )
@@ -25,11 +26,6 @@ class Regra:
     descricao: str
     motivo: str
 
-
-# A razão dívida/renda plausível: entre os registros com renda declarada, o p95 medido é
-# 1,1. O teto de 10 é uma ordem de grandeza acima disso — generoso o bastante para não
-# reprovar caso atípico legítimo, apertado o bastante para barrar o defeito conhecido.
-DEBT_RATIO_MAXIMO = 10.0
 
 REGRAS: tuple[Regra, ...] = (
     Regra(
