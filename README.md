@@ -66,10 +66,16 @@ Retenção de 78,61%. Cada linha descartada é contabilizada por motivo — desc
 | `idade_invalida` | 1 |
 | `atraso_sentinela` | 144 |
 | `razao_divida_implausivel` | 2.106 |
+| `campo_invalido` | 0 |
 | **Total** | **32.083** |
 
 As contagens são **cumulativas, não independentes**: cada filtro opera sobre o que sobrou
-do anterior, então a soma é o total real de linhas perdidas, sem dupla contagem.
+do anterior, então a soma é o total real de linhas perdidas, sem dupla contagem. Os dois
+zeros são medições, não regras sobrando: `dependentes_nulo` mede 0 porque o filtro de renda
+já removeu essas linhas (ver o achado 2 abaixo), e `campo_invalido` mede 0 porque nenhuma
+das três colunas sem regra de negócio nomeada chega nula no arquivo — ambos os filtros
+existem porque o contrato de ingestão exige o que eles exigem, e não porque o arquivo
+atual precise deles.
 
 ### Três coisas que o dado revelou
 
@@ -101,10 +107,18 @@ repositório.)*
 ### Duas propriedades que custaram a ser obtidas
 
 **A Referência passa no próprio contrato.** A limpeza e o contrato são uma política só,
-expressa duas vezes — e as constantes (`DEBT_RATIO_MAXIMO`, `IDADE_MINIMA`,
-`ATRASO_MAXIMO_PLAUSIVEL`) são **importadas**, não repetidas. Um teste
-(`test_referencia_limpa_passa_no_proprio_contrato`) garante isso. Num rascunho anterior as
-duas divergiam, o que teria matado o pipeline na própria etapa de validação.
+expressa duas vezes: cada descarte de `limpar()` é a negação de uma exigência do schema,
+uma a uma, sem sobrar nenhuma — e as constantes (`DEBT_RATIO_MAXIMO`, `IDADE_MINIMA`,
+`IDADE_MAXIMA`, `ATRASO_MAXIMO_PLAUSIVEL`, `COLUNAS_DE_ATRASO`, `COLUNAS_SEM_REGRA_NOMEADA`)
+são **importadas** de um lugar só, não repetidas. Dois testes cobram isso, e cobram por
+motivos diferentes: `test_referencia_limpa_passa_no_proprio_contrato` carrega uma linha
+por exigência do contrato — inclusive as que só o contrato enxergava, como renda negativa
+ou `RevolvingUtilizationOfUnsecuredLines` nula — e
+`test_limpeza_cobre_todas_as_colunas_do_contrato` fecha o lado estrutural, exigindo que
+toda coluna do schema esteja coberta por uma regra nomeada ou pela lista das estruturais.
+Num rascunho anterior as duas divergiam, o que teria matado o pipeline na própria etapa de
+validação; num segundo rascunho o teste que deveria pegar isso era construído só com os
+defeitos que a limpeza já tratava, e por isso passava sem poder acusar nada.
 
 **O tratamento de desbalanceamento é verificado, não suposto.** Ver a seção de modelo.
 

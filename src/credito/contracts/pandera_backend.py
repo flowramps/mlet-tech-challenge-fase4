@@ -51,7 +51,10 @@ _REGRA_CAMPO_INVALIDO = "campo_invalido"
 
 # Uma regra por coluna: nesse schema nenhuma coluna carrega duas regras diferentes, então
 # o nome de coluna já identifica a regra sem ambiguidade — o que salva o conversor de
-# precisar decifrar o texto do check (ver docstring do módulo).
+# precisar decifrar o texto do check (ver docstring do módulo). As colunas que ficam de
+# fora deste mapa são exatamente as de `COLUNAS_SEM_REGRA_NOMEADA`, e um teste cobra essa
+# correspondência: a limpeza da Referência espelha as exigências do contrato coluna a
+# coluna, e uma coluna que mudasse de categoria aqui sem mudar lá abriria a divergência.
 _REGRA_POR_COLUNA: dict[str, str] = {
     "MonthlyIncome": "renda_nao_nula",
     "age": "idade_plausivel",

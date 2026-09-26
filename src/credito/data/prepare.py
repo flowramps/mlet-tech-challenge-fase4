@@ -38,6 +38,16 @@ COLUNAS_DE_ATRASO: tuple[str, ...] = (
     "NumberOfTime60-89DaysPastDueNotWorse",
 )
 
+# As colunas que o contrato exige sem ter uma regra de negócio nomeada para elas: a única
+# exigência é estrutural — existir, ter o tipo certo e não ser nula. Ficam declaradas aqui,
+# junto das outras constantes compartilhadas, para que limpeza e contrato usem a mesma
+# lista em vez de cada um manter a sua.
+COLUNAS_SEM_REGRA_NOMEADA: tuple[str, ...] = (
+    "RevolvingUtilizationOfUnsecuredLines",
+    "NumberOfOpenCreditLinesAndLoans",
+    "NumberRealEstateLoansOrLines",
+)
+
 IDADE_MINIMA = 18
 IDADE_MAXIMA = 110
 
@@ -79,7 +89,15 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
         motivos[rotulo] = int(mascara.sum())
         trabalho = trabalho.loc[~mascara]
 
-    # As contagens abaixo são cumulativas, não independentes: cada `_descartar` opera
+    # Cada máscara abaixo é a negação de uma exigência do contrato de ingestão, uma a uma,
+    # sem sobrar nenhuma. Qualquer exigência do contrato sem espelho aqui produz uma linha
+    # que sobrevive à limpeza e reprova na validação da própria Referência — foi o que
+    # quase derrubou o pipeline uma vez, e é por isso que a forma é `~<exigência>` em vez
+    # de uma lista de defeitos conhecidos. As comparações usam `ge`/`between`, que
+    # devolvem False para nulo: "não satisfaz a exigência" já inclui o valor ausente, sem
+    # um `isna()` separado que alguém possa esquecer de acrescentar.
+    #
+    # As contagens são cumulativas, não independentes: cada `_descartar` opera
     # sobre o que sobrou do descarte anterior, então a soma dos motivos é o total real
     # de linhas perdidas, sem dupla contagem. Isso também explica por que
     # "dependentes_nulo" mede 0 no dataset real: no arquivo bruto, 100% das linhas com
@@ -87,8 +105,8 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # já as removeu antes desta rodar. Renda nula, dependentes nulo e `DebtRatio`
     # absurdo não são três defeitos, são um único evento de ingestão quebrado com três
     # sintomas. Um "0" aqui é evidência desse fato, não sinal de regra morta a remover.
-    _descartar(trabalho["MonthlyIncome"].isna(), "renda_nula")
-    _descartar(trabalho["NumberOfDependents"].isna(), "dependentes_nulo")
+    _descartar(~trabalho["MonthlyIncome"].ge(0.0), "renda_nula")
+    _descartar(~trabalho["NumberOfDependents"].ge(0.0), "dependentes_nulo")
     _descartar(
         ~trabalho["age"].between(IDADE_MINIMA, IDADE_MAXIMA),
         "idade_invalida",
@@ -96,7 +114,7 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
 
     sentinela = pd.Series(False, index=trabalho.index)
     for coluna in COLUNAS_DE_ATRASO:
-        sentinela |= trabalho[coluna] > ATRASO_MAXIMO_PLAUSIVEL
+        sentinela |= ~trabalho[coluna].between(0, ATRASO_MAXIMO_PLAUSIVEL)
     _descartar(sentinela, "atraso_sentinela")
 
     # Rede de segurança para quando a renda vem preenchida mas o DebtRatio ainda assim é
@@ -108,6 +126,16 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
         ~trabalho["DebtRatio"].between(0.0, DEBT_RATIO_MAXIMO),
         "razao_divida_implausivel",
     )
+
+    # As três colunas restantes do contrato não têm regra de negócio nomeada, só a
+    # exigência estrutural de não serem nulas. O contrato relata uma falha nelas como
+    # `campo_invalido`, e o motivo do descarte usa o mesmo nome para que os dois lados
+    # falem de um defeito só. Mede 0 no arquivo real — nenhuma das três chega nula —, o
+    # que é evidência de que o dado está íntegro nessas colunas, não regra sobrando.
+    obrigatoria_nula = pd.Series(False, index=trabalho.index)
+    for coluna in COLUNAS_SEM_REGRA_NOMEADA:
+        obrigatoria_nula |= trabalho[coluna].isna()
+    _descartar(obrigatoria_nula, "campo_invalido")
 
     limpo = trabalho[[ALVO, *FEATURES]].reset_index(drop=True)
     logger.info("referência com %d linhas; descartes: %s", len(limpo), motivos)

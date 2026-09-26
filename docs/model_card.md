@@ -63,7 +63,9 @@ do art. 5º, II da LGPD entre as dez variáveis. `age` é o único atributo prot
 
 32.083 linhas descartadas (retenção de 78,61%), contabilizadas por motivo: `renda_nula`
 29.186 · `razao_divida_implausivel` 2.106 · `duplicata` 646 · `atraso_sentinela` 144 ·
-`idade_invalida` 1 · `dependentes_nulo` 0.
+`idade_invalida` 1 · `dependentes_nulo` 0 · `campo_invalido` 0. Os dois zeros são
+medições: as linhas que eles filtrariam já foram removidas antes, ou não existem no
+arquivo. Os filtros existem porque o contrato de ingestão exige o que eles exigem.
 
 Partições estratificadas pelo alvo, semente 42: **treino 70.749 · validação 23.584 · teste
 23.584**, com 6,94% de positivos em cada.

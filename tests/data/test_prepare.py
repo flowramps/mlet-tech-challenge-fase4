@@ -5,8 +5,14 @@ from __future__ import annotations
 
 import pandas as pd
 
-from credito.contracts.pandera_backend import construir_validador
-from credito.data.prepare import ALVO, FEATURES, limpar, separar
+from credito.contracts.pandera_backend import _REGRA_POR_COLUNA, _schema, construir_validador
+from credito.data.prepare import (
+    ALVO,
+    COLUNAS_SEM_REGRA_NOMEADA,
+    FEATURES,
+    limpar,
+    separar,
+)
 
 
 def _linha(**ajustes) -> dict:
@@ -119,9 +125,14 @@ def test_descarta_duplicata_por_features_mesmo_com_alvo_diferente():
 def test_referencia_limpa_passa_no_proprio_contrato():
     # A invariante que sustenta o projeto: dado que seria bloqueado na porta não pode ter
     # ensinado o modelo. Não é um teste de escala — roda numa amostra sintética que
-    # carrega uma instância de cada defeito que `limpar()` precisa descartar, e verifica
-    # que o que sobra passa no contrato de ingestão de verdade, não apenas nos descartes
-    # testados um a um acima.
+    # carrega uma instância de **cada exigência do contrato**, e verifica que o que sobra
+    # passa no contrato de ingestão de verdade.
+    #
+    # A distinção importa: numa versão anterior o frame trazia só os defeitos que
+    # `limpar()` já sabia tratar, então ele passava por construção e não podia acusar
+    # divergência nenhuma. As linhas marcadas abaixo são justamente as que a limpeza
+    # deixava passar e o contrato reprovava — cada uma põe o teste vermelho se o espelho
+    # correspondente sumir de `limpar()`.
     frame = pd.DataFrame(
         [
             _linha(),
@@ -130,14 +141,40 @@ def test_referencia_limpa_passa_no_proprio_contrato():
             _linha(MonthlyIncome=None),
             _linha(NumberOfDependents=None),
             _linha(age=15),
+            _linha(age=120),
             _linha(**{"NumberOfTimes90DaysLate": 98}),
             _linha(DebtRatio=15.0),
+            _linha(DebtRatio=-1.0),
+            # A partir daqui, as seis que a limpeza não espelhava.
+            _linha(MonthlyIncome=-1.0),
+            _linha(NumberOfDependents=-1.0),
+            _linha(**{"NumberOfTimes90DaysLate": -1}),
+            _linha(RevolvingUtilizationOfUnsecuredLines=None),
+            _linha(NumberOfOpenCreditLinesAndLoans=None),
+            _linha(NumberRealEstateLoansOrLines=None),
         ]
     )
 
     limpo, _ = limpar(frame)
 
     assert construir_validador().validar(limpo[list(FEATURES)]).valido is True
+    # Sobram só as linhas boas: as três primeiras colapsam em uma pelo dedup em FEATURES,
+    # e todas as outras são descartes. Sem esta contagem o teste continuaria verde se
+    # `limpar()` passasse a descartar o lote inteiro.
+    assert len(limpo) == 1
+
+
+def test_limpeza_cobre_todas_as_colunas_do_contrato():
+    # O espelho entre limpeza e contrato é verificado acima caso a caso; este teste cobra
+    # a outra metade, estrutural: toda coluna que o contrato exige precisa estar coberta
+    # por uma regra nomeada ou pela lista das que só têm exigência estrutural. Uma coluna
+    # nova no schema sem entrada em nenhum dos dois lados cai aqui, antes de virar uma
+    # divergência que só o arquivo real revelaria.
+    do_schema = set(_schema().columns)
+
+    assert do_schema == set(FEATURES)
+    assert do_schema == set(_REGRA_POR_COLUNA) | set(COLUNAS_SEM_REGRA_NOMEADA)
+    assert not set(_REGRA_POR_COLUNA) & set(COLUNAS_SEM_REGRA_NOMEADA)
 
 
 def test_referencia_sai_com_as_features_esperadas():
