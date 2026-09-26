@@ -67,7 +67,9 @@ def test_erguer_e_silencioso_quando_valido():
 
 
 def test_existem_ao_menos_tres_regras_rigidas():
-    # O enunciado exige no mínimo três. Este teste é o que impede que uma refatoração
-    # apague uma regra sem ninguém perceber.
+    # Três é o mínimo para o contrato ser um contrato e não uma checagem isolada; hoje são
+    # seis. Este teste é o que impede que uma refatoração apague uma regra sem ninguém
+    # perceber — e a unicidade dos nomes é o que impede que duas regras se confundam no
+    # relatório de violações.
     assert len(REGRAS) >= 3
     assert len({regra.nome for regra in REGRAS}) == len(REGRAS), "nomes de regra duplicados"
