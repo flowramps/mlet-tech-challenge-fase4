@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from credito.config import Settings, get_settings
+from credito.config import PROJECT_ROOT, Settings, get_settings
 
 
 def test_prefixo_de_ambiente_e_credito(monkeypatch):
@@ -36,3 +36,44 @@ def test_pisos_do_gate_estao_calibrados():
     settings = Settings()
     assert settings.min_auc_pr == 0.3216
     assert settings.min_recall_positivo == 0.6415
+
+
+def _entradas_do_env_example() -> dict[str, str]:
+    caminho = Path(__file__).resolve().parents[1] / ".env.example"
+    entradas: dict[str, str] = {}
+    for linha in caminho.read_text(encoding="utf-8").splitlines():
+        limpa = linha.strip()
+        if not limpa or limpa.startswith("#") or "=" not in limpa:
+            continue
+        chave, valor = limpa.split("=", 1)
+        entradas[chave.strip()] = valor.strip()
+    return entradas
+
+
+def test_env_example_reproduz_os_defaults_que_declara():
+    # O arquivo existe para dizer quais são os defaults; se ele mentir, copiá-lo para .env
+    # muda o comportamento em silêncio, que é o pior desfecho possível para um arquivo de
+    # exemplo. Este teste compara cada valor **ativo** com o default de verdade.
+    padrao = Settings()
+    declarados = _entradas_do_env_example()
+
+    assert declarados, ".env.example não declara nenhuma variável ativa"
+    for chave, valor in declarados.items():
+        campo = chave.removeprefix("CREDITO_").lower()
+        assert hasattr(padrao, campo), chave
+        assert str(getattr(padrao, campo)) == valor, chave
+
+
+def test_defaults_de_diretorio_sao_absolutos_e_ancorados_no_repositorio():
+    # A razão de os quatro diretórios estarem comentados no .env.example: o default é
+    # absoluto, ancorado no repositório, e nenhum caminho relativo o reproduz a não ser
+    # por coincidência de diretório de trabalho. Declará-los como valor relativo era
+    # exatamente essa coincidência escrita como se fosse o default.
+    padrao = Settings()
+    declarados = _entradas_do_env_example()
+
+    for campo in ("data_dir", "models_dir", "metrics_dir", "reports_dir"):
+        valor = getattr(padrao, campo)
+        assert valor.is_absolute(), campo
+        assert valor.parent == PROJECT_ROOT, campo
+        assert f"CREDITO_{campo.upper()}" not in declarados, campo
