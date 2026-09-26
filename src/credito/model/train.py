@@ -73,6 +73,13 @@ def treinar(frame: pd.DataFrame, tipo: str, *, seed: int) -> Pipeline:
                 (
                     "classificador",
                     XGBClassifier(
+                        # Padrões conservadores de baseline, não valores otimizados: a
+                        # comparação com a regressão logística só é evidência se o
+                        # ensemble entrar como candidato honesto, não como vencedor
+                        # ajustado a dedo. n_estimators/max_depth moderados evitam
+                        # memorizar o treino; subsample/colsample_bytree abaixo de 1
+                        # dão alguma resistência a overfitting sem exigir busca de
+                        # hiperparâmetros nesta etapa.
                         n_estimators=300,
                         max_depth=5,
                         learning_rate=0.1,

@@ -7,6 +7,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
 
 from credito.data.prepare import ALVO, FEATURES
 from credito.model.train import TIPOS_DE_MODELO, carregar_modelo, salvar_modelo, treinar
@@ -34,6 +40,78 @@ def desbalanceado() -> pd.DataFrame:
     return pd.DataFrame(dados)[[ALVO, *FEATURES]]
 
 
+@pytest.fixture
+def desbalanceado_com_sobreposicao() -> pd.DataFrame:
+    """Fixture dedicada ao teste de colapso.
+
+    Em `desbalanceado`, a renda separa as classes por ~13 desvios-padrão — qualquer
+    classificador, com ou sem peso, acerta 100% sobre ela (verificado manualmente: um
+    modelo treinado sem `class_weight`/`scale_pos_weight` também identifica todos os
+    positivos ali, porque a fixture é trivial demais para exercitar o tratamento de
+    desbalanceamento). Crédito real não tem sinal isolado tão limpo, então aqui a
+    diferença de médias fica abaixo de 1 desvio-padrão — sobreposição real, do tipo que
+    só um modelo com tratamento explícito consegue explorar.
+    """
+    gerador = np.random.default_rng(42)
+    n = 8000
+    positivo = gerador.random(n) < 0.07
+    dados = {
+        "RevolvingUtilizationOfUnsecuredLines": gerador.random(n),
+        "age": gerador.integers(18, 80, n),
+        "NumberOfTime30-59DaysPastDueNotWorse": gerador.integers(0, 3, n),
+        "DebtRatio": gerador.random(n),
+        "MonthlyIncome": np.where(positivo, 3900.0, 5100.0) + gerador.normal(0, 1300, n),
+        "NumberOfOpenCreditLinesAndLoans": gerador.integers(1, 15, n),
+        "NumberOfTimes90DaysLate": gerador.integers(0, 2, n),
+        "NumberRealEstateLoansOrLines": gerador.integers(0, 4, n),
+        "NumberOfTime60-89DaysPastDueNotWorse": gerador.integers(0, 2, n),
+        "NumberOfDependents": gerador.integers(0, 4, n).astype(float),
+        ALVO: positivo.astype(int),
+    }
+    return pd.DataFrame(dados)[[ALVO, *FEATURES]]
+
+
+def _montar_sem_peso(tipo: str, seed: int) -> Pipeline:
+    """Réplica do candidato de `treinar`, mas sem nenhum tratamento de desbalanceamento.
+
+    É o controle do teste de colapso: mesma arquitetura e mesmos hiperparâmetros do
+    candidato de produção, com a única diferença sendo o peso da classe. Se o candidato
+    de produção não superar este controle, o peso não estava fazendo nada.
+    """
+    if tipo == "regressao_logistica":
+        return Pipeline(
+            [
+                ("imputacao", SimpleImputer(strategy="median")),
+                ("escala", StandardScaler()),
+                ("classificador", LogisticRegression(max_iter=1000, random_state=seed)),
+            ]
+        )
+    return Pipeline(
+        [
+            (
+                "classificador",
+                XGBClassifier(
+                    n_estimators=300,
+                    max_depth=5,
+                    learning_rate=0.1,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    eval_metric="aucpr",
+                    random_state=seed,
+                    n_jobs=-1,
+                    tree_method="hist",
+                ),
+            )
+        ]
+    )
+
+
+def _recall_positivo(modelo: Pipeline, avaliacao: pd.DataFrame) -> float:
+    previsto = modelo.predict(avaliacao[list(FEATURES)])
+    verdadeiro = avaliacao[ALVO].to_numpy()
+    return float(((previsto == 1) & (verdadeiro == 1)).sum() / verdadeiro.sum())
+
+
 @pytest.mark.parametrize("tipo", TIPOS_DE_MODELO)
 def test_treina_e_prediz_probabilidade(desbalanceado, tipo):
     modelo = treinar(desbalanceado, tipo, seed=42)
@@ -45,13 +123,31 @@ def test_treina_e_prediz_probabilidade(desbalanceado, tipo):
 
 
 @pytest.mark.parametrize("tipo", TIPOS_DE_MODELO)
-def test_nao_colapsa_na_classe_majoritaria(desbalanceado, tipo):
-    # Sem tratamento de desbalanceamento, ambos os modelos preveriam 0 para tudo.
-    modelo = treinar(desbalanceado, tipo, seed=42)
+def test_nao_colapsa_na_classe_majoritaria(desbalanceado_com_sobreposicao, tipo):
+    # Comparação contra um controle idêntico, mas sem peso, treinado e avaliado sobre o
+    # mesmo corte treino/teste (avaliar em dados nunca vistos importa: um XGBoost com
+    # capacidade suficiente memoriza o próprio treino independente do peso, o que
+    # mascararia justamente o efeito que este teste precisa provar). Se o tratamento de
+    # desbalanceamento não fizer diferença, o candidato de produção não recupera mais
+    # positivos do que o controle sem peso.
+    treino, avaliacao = train_test_split(
+        desbalanceado_com_sobreposicao,
+        test_size=0.3,
+        random_state=42,
+        stratify=desbalanceado_com_sobreposicao[ALVO],
+    )
 
-    previsto = modelo.predict(desbalanceado[list(FEATURES)])
+    modelo = treinar(treino, tipo, seed=42)
+    controle = _montar_sem_peso(tipo, seed=42)
+    controle.fit(treino[list(FEATURES)], treino[ALVO])
 
-    assert previsto.sum() > 0, "o modelo prevê a classe majoritária para todo mundo"
+    recall_tratado = _recall_positivo(modelo, avaliacao)
+    recall_controle = _recall_positivo(controle, avaliacao)
+
+    assert recall_tratado > recall_controle + 0.1, (
+        "o tratamento de desbalanceamento não recuperou mais inadimplentes que o "
+        "controle sem peso"
+    )
 
 
 @pytest.mark.parametrize("tipo", TIPOS_DE_MODELO)
