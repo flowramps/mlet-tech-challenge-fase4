@@ -53,8 +53,11 @@ def test_candidato_melhor_supera_o_incumbente():
 
 def test_ganho_tecnico_com_perda_de_negocio_nao_promove():
     # AUC-PR melhor, recall pior: tecnicamente superior, pior para o negócio. O gate
-    # precisa enxergar essa assimetria — AUC-PR sozinho não enxerga.
-    trocado = {"auc_pr": 0.50, "recall_positivo": 0.55}
+    # precisa enxergar essa assimetria — AUC-PR sozinho não enxerga. O recall aqui fica
+    # acima do piso absoluto (0.60) e abaixo apenas do incumbente (0.70): se caísse sob o
+    # piso, a reprovação seria explicada pelo piso, não pela regressão frente ao incumbente,
+    # e o teste deixaria de isolar o critério que quer provar.
+    trocado = {"auc_pr": 0.50, "recall_positivo": 0.65}
 
     assert deve_promover(trocado, BONS, **PISOS) is False
 
