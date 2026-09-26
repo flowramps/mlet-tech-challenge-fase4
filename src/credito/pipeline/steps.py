@@ -127,6 +127,12 @@ def deve_promover(
     incumbente, dois critérios de não regressão. O recall positivo é a métrica de negócio:
     aprovar um inadimplente custa o valor emprestado, recusar um bom pagador custa a
     margem. AUC-PR sozinho não enxerga essa assimetria.
+
+    A resposta é derivada dos mesmos motivos que as funções acima produzem, nunca de uma
+    segunda avaliação dos critérios — duas contas independentes sobre a mesma pergunta
+    podem discordar, e a que discorda em silêncio é sempre a que ninguém está lendo. O
+    pipeline não chama esta função: ele já tem as duas listas em mãos e precisa saber
+    **qual** delas veio preenchida, não só se alguma veio.
     """
     return not motivos_de_reprovacao(
         candidato,

@@ -140,7 +140,8 @@ def _schema() -> pa.DataFrameSchema:
         # quando existe; o contrato exige presença, não exclusividade.
         strict=False,
         unique_column_names=True,
-        # A regra de duplicata é do lote inteiro, não de uma coluna.
+        # A regra de duplicata compara linhas, não valores de uma coluna: por isso é um
+        # `Check` de DataFrame. O recorte de colunas que ela usa está em `_sem_duplicatas`.
         checks=pa.Check(
             _sem_duplicatas,
             name=_NOME_CHECAGEM_DUPLICATA,
