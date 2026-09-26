@@ -38,10 +38,19 @@ class Settings(BaseSettings):
     test_size: float = 0.2
     validation_size: float = 0.2
 
-    # Pisos do gate de promoção. Ficam em zero até a Task 10, que os calibra a partir do
-    # primeiro treino real — um piso chutado antes da medição é enfeite que sempre passa.
-    min_auc_pr: float = 0.0
-    min_recall_positivo: float = 0.0
+    # Pisos do gate de promoção, calibrados sobre medição e não sobre chute — um piso
+    # inventado antes de existir modelo é enfeite que sempre passa. A margem de 0,05 em
+    # ambos absorve a variação natural entre retreinos (reordenação de partição, versão
+    # de biblioteca) sem abrir espaço para uma queda real de qualidade passar batido.
+    #
+    # Piso de AUC-PR. Calibrado a partir do AUC-PR do campeão (xgboost) no conjunto de
+    # teste da Referência, 0,3716, menos a margem.
+    min_auc_pr: float = 0.3216
+
+    # Piso de recall da classe positiva — a métrica de negócio: aprovar um inadimplente
+    # custa o valor emprestado, recusar um bom pagador custa a margem. Calibrado a partir
+    # do recall do mesmo campeão no mesmo conjunto de teste, 0,6915, menos a margem.
+    min_recall_positivo: float = 0.6415
 
     @property
     def raw_dir(self) -> Path:
