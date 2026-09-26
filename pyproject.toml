@@ -4,18 +4,21 @@ version = "0.1.0"
 description = "Sustentação de um modelo de risco de crédito: contratos de dados, detecção de drift e observabilidade"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+# Só o que `src/` importa de fato. `fastapi`, `uvicorn`, `prometheus-client` e `scipy`
+# estiveram aqui sem nenhum import correspondente: `scipy` chega de qualquer forma como
+# dependência do scikit-learn, e o leitor de ARFF documenta por que não usa
+# `scipy.io.arff`. As etapas que precisarem de servidor HTTP ou de métricas Prometheus
+# declaram isso quando o código existir — uma dependência não usada é peso na imagem e
+# superfície de CVE em troca de nada.
 dependencies = [
     "scikit-learn (>=1.5,<2.0)",
     "pandas (>=2.2,<3.0)",
+    "numpy (>=2.0,<3.0)",
     "joblib (>=1.4,<2.0)",
-    "fastapi (>=0.115,<1.0)",
-    "uvicorn[standard] (>=0.32,<1.0)",
     "pydantic-settings (>=2.6,<3.0)",
     "httpx (>=0.27,<1.0)",
-    "prometheus-client (>=0.21,<1.0)",
     "pandera (>=0.33.1,<0.34)",
     "xgboost (>=2.1,<3.0)",
-    "scipy (>=1.14,<2.0)",
 ]
 
 [tool.poetry]
@@ -26,7 +29,10 @@ packages = [{ include = "credito", from = "src" }]
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
 pytest-cov = "^6.0"
-ruff = "^0.7.4"
+# Versão exata, não faixa: `.pre-commit-config.yaml` e `ci.yml` fixam 0.7.4 no pino, e uma
+# faixa aqui deixaria o ambiente local subir uma minor sozinho — o clássico "passa local,
+# falha no CI" por regra nova ou formatação diferente. Um teste cobra os três valores.
+ruff = "0.7.4"
 pre-commit = "^4.0"
 
 [tool.poetry.group.notebooks.dependencies]
