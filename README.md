@@ -45,7 +45,8 @@ de engenharia, não de conveniência: reprodutibilidade em clone limpo vale mais
 usar o endereço canônico.
 
 A integridade é verificada a cada execução contra o md5 fixado em `config.py`
-(`6d013a631b97b13d5372f097697e25a1`, 6,9 MB, formato ARFF). Cache íntegro não é rebaixado.
+(`6d013a631b97b13d5372f097697e25a1`, 7.226.796 bytes, formato ARFF). Cache íntegro não é
+rebaixado.
 
 ### Do arquivo bruto ao Dataset de Referência
 
@@ -389,7 +390,7 @@ git clone <url-do-repositorio>
 cd <diretorio-do-repositorio>
 
 make install        # instala dependências e os hooks de pre-commit
-make data           # baixa o dataset público (~6,9 MB) e verifica o md5
+make data           # baixa o dataset público (7,2 MB) e verifica o md5
 make train          # treina os candidatos, avalia e promove o campeão
 ```
 
@@ -412,6 +413,10 @@ make demo-contrato  # mostra o contrato bloqueando um lote adulterado
 
 Rodar `make train` uma segunda vez **não falha**: o retreino reproduz o incumbente, o gate
 recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto.
+
+Este percurso foi executado em um clone limpo, e não apenas descrito: o
+`models/model.joblib` produzido lá tem md5 `567d4533bf2f46c425d22e59adcd8aac`, o mesmo do
+artefato gerado no repositório de desenvolvimento. O treino é determinístico ponta a ponta.
 
 Toda configuração é resolvida por variável de ambiente com o prefixo `CREDITO_`
 (ver `.env.example` e `src/credito/config.py`); nenhuma é obrigatória — os defaults são os
