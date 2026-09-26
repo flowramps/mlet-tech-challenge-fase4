@@ -7,7 +7,12 @@ import pandas as pd
 import pytest
 
 from credito.contracts.base import ContratoViolado
-from credito.contracts.pandera_backend import construir_validador
+from credito.contracts.pandera_backend import (
+    _REGRA_POR_CHECAGEM_DE_LOTE,
+    _REGRA_POR_COLUNA,
+    construir_validador,
+)
+from credito.contracts.rules import REGRAS
 
 
 def _lote(n: int = 5, **ajustes) -> pd.DataFrame:
@@ -114,3 +119,29 @@ def test_indices_das_violacoes_de_coluna_apontam_as_linhas_certas():
     violacao = next(v for v in resultado.violacoes if v.regra == "idade_plausivel")
     assert violacao.indices == (1,)
     assert resultado.linhas_reprovadas == 1
+
+
+def test_nomes_de_regra_sao_subconjunto_de_regras():
+    # `_REGRA_POR_COLUNA` e `_REGRA_POR_CHECAGEM_DE_LOTE` são literais escritos à mão,
+    # não derivados de REGRAS (ver docstring do módulo) — este teste é o que impede as
+    # duas listas de se afastarem em silêncio: se um nome mudar em `rules.py` e não aqui
+    # (ou vice-versa), a rastreabilidade quebra e este teste tem que acusar.
+    nomes_usados = set(_REGRA_POR_COLUNA.values()) | set(_REGRA_POR_CHECAGEM_DE_LOTE.values())
+    nomes_declarados = {regra.nome for regra in REGRAS}
+
+    assert nomes_usados <= nomes_declarados
+
+
+def test_coluna_sem_regra_de_negocio_reporta_campo_invalido():
+    # RevolvingUtilizationOfUnsecuredLines tem exigência de tipo e de não-nulo, mas
+    # nenhuma regra de negócio nomeada em REGRAS. Sem este sentinela, a violação cairia
+    # de volta no nome bruto da coluna — um identificador camelCase disfarçado de nome de
+    # regra, o único jeito de `regra` fugir do vocabulário do resto do sistema.
+    resultado = construir_validador().validar(
+        _lote(RevolvingUtilizationOfUnsecuredLines=[0.1, None, 0.2, 0.3, 0.4])
+    )
+
+    violacao = next(
+        v for v in resultado.violacoes if v.coluna == "RevolvingUtilizationOfUnsecuredLines"
+    )
+    assert violacao.regra == "campo_invalido"

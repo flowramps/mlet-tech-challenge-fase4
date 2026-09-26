@@ -1,9 +1,12 @@
 """Execução do contrato com Pandera.
 
-O schema é montado a partir de ``rules.REGRAS`` e os nomes das colunas espelham os nomes
-das regras: um relatório de violação cita a mesma palavra que a documentação, e a
-rastreabilidade entre o que falhou e o porquê não depende de ninguém manter duas listas
-em sincronia.
+Os nomes de regra usados neste módulo (``_REGRA_POR_COLUNA`` e
+``_REGRA_POR_CHECAGEM_DE_LOTE``) são literais escritos à mão, não derivados de
+``rules.REGRAS`` — as duas listas existem separadas porque ``Regra`` carrega descrição e
+motivo em prosa, feitos para leitura humana, e transformá-la numa camada de geração de
+schema adicionaria indireção sem necessidade real. O que garante que as duas listas não
+se afastem é um teste (``test_nomes_de_regra_sao_subconjunto_de_regras``), não a
+estrutura do código: ele falha assim que um nome aqui deixar de existir em ``REGRAS``.
 
 ``lazy=True`` é essencial: sem ele o Pandera para na primeira falha, e quem está corrigindo
 um lote precisa ver todos os problemas de uma vez.
@@ -37,6 +40,14 @@ from credito.data.prepare import (
 
 _NOME_CHECAGEM_DUPLICATA = "sem_duplicatas"
 _CHECAGEM_COLUNA_AUSENTE = "column_in_dataframe"
+
+# Três colunas do schema (RevolvingUtilizationOfUnsecuredLines,
+# NumberOfOpenCreditLinesAndLoans, NumberRealEstateLoansOrLines) têm exigência de tipo e
+# de não-nulo, mas nenhuma regra de negócio nomeada em REGRAS. Uma falha nelas é real —
+# não pode virar `regra=<nome da coluna>`, um identificador de coluna disfarçado de nome
+# de regra, inconsistente com todo outro valor de `regra` do sistema. Este sentinela
+# nomeia o caso: "restrição estrutural falhou numa coluna sem regra de negócio".
+_REGRA_CAMPO_INVALIDO = "campo_invalido"
 
 # Uma regra por coluna: nesse schema nenhuma coluna carrega duas regras diferentes, então
 # o nome de coluna já identifica a regra sem ambiguidade — o que salva o conversor de
@@ -146,7 +157,7 @@ class PanderaValidator:
         por_coluna = relatorio[relatorio["schema_context"] == "Column"]
         for coluna, grupo in por_coluna.groupby("column", sort=True):
             nome_coluna = str(coluna)
-            regra = _REGRA_POR_COLUNA.get(nome_coluna, nome_coluna)
+            regra = _REGRA_POR_COLUNA.get(nome_coluna, _REGRA_CAMPO_INVALIDO)
             indices = tuple(sorted({int(valor) for valor in grupo["index"].dropna()}))
             violacoes.append(
                 Violacao(regra=regra, coluna=nome_coluna, linhas=len(indices), indices=indices)
@@ -158,7 +169,7 @@ class PanderaValidator:
         ]
         for checagem, grupo in por_lote.groupby("check", sort=True):
             nome_checagem = str(checagem)
-            regra = _REGRA_POR_CHECAGEM_DE_LOTE.get(nome_checagem, nome_checagem)
+            regra = _REGRA_POR_CHECAGEM_DE_LOTE.get(nome_checagem, _REGRA_CAMPO_INVALIDO)
             indices = tuple(sorted({int(valor) for valor in grupo["index"].dropna()}))
             violacoes.append(
                 Violacao(regra=regra, coluna="*", linhas=len(indices), indices=indices)
