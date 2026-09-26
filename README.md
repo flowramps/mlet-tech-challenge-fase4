@@ -347,7 +347,7 @@ INFO promovido: xgboost
 
 $ md5sum models/model.joblib metrics/metrics.json
 567d4533bf2f46c425d22e59adcd8aac  models/model.joblib
-f591612310ed38d3f9d47c0ef9828bd9  metrics/metrics.json
+dc89d46d429058dd109ea6964bed425c  metrics/metrics.json
 ```
 
 **Execução 2 — piso absoluto violado, o run falha**
@@ -361,7 +361,7 @@ ERROR gate de qualidade reprovou o candidato: auc_pr 0.3716 abaixo do piso 0.990
 
 $ md5sum models/model.joblib metrics/metrics.json
 567d4533bf2f46c425d22e59adcd8aac  models/model.joblib     <- idêntico
-f591612310ed38d3f9d47c0ef9828bd9  metrics/metrics.json    <- idêntico
+dc89d46d429058dd109ea6964bed425c  metrics/metrics.json    <- idêntico
 ```
 
 **Execução 3 — retreino idempotente, o run conclui sem promover**
@@ -375,7 +375,7 @@ INFO nada a promover: auc_pr 0.3716 não supera o modelo em produção (0.3716)
 
 $ md5sum models/model.joblib metrics/metrics.json
 567d4533bf2f46c425d22e59adcd8aac  models/model.joblib     <- idêntico
-f591612310ed38d3f9d47c0ef9828bd9  metrics/metrics.json    <- idêntico
+dc89d46d429058dd109ea6964bed425c  metrics/metrics.json    <- idêntico
 ```
 
 O checksum do modelo publicado é **byte a byte idêntico** nas três verificações: nenhum
