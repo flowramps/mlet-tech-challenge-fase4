@@ -3,9 +3,13 @@ central da fase — aprovar dado deslocado, porque drift não é invalidez."""
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
+from credito.contracts import pandera_backend
 from credito.contracts.base import ContratoViolado
 from credito.contracts.pandera_backend import (
     _REGRA_POR_CHECAGEM_DE_LOTE,
@@ -183,6 +187,32 @@ def test_nomes_de_regra_sao_subconjunto_de_regras():
     nomes_declarados = {regra.nome for regra in REGRAS}
 
     assert nomes_usados <= nomes_declarados
+
+
+def test_constantes_compartilhadas_vem_todas_de_data_prepare():
+    # As cinco constantes que limpeza e contrato dividem moram em `data.prepare`. Vir de lá
+    # não é preferência de estilo: é o que faz "procure a constante onde ela é definida"
+    # dar sempre no mesmo lugar. `DEBT_RATIO_MAXIMO` chegava aqui reexportada por
+    # `contracts.rules` — mesmo valor, rota diferente, e a sugestão errada de que a
+    # constante pertencesse ao módulo de regras. Nenhuma asserção sobre o valor pegaria
+    # isso, porque os dois caminhos devolvem o mesmo objeto; só a origem do import pega.
+    compartilhadas = {
+        "ATRASO_MAXIMO_PLAUSIVEL",
+        "COLUNAS_DE_ATRASO",
+        "DEBT_RATIO_MAXIMO",
+        "IDADE_MAXIMA",
+        "IDADE_MINIMA",
+    }
+    arvore = ast.parse(Path(pandera_backend.__file__).read_text(encoding="utf-8"))
+    origem = {
+        alias.name: no.module
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.ImportFrom)
+        for alias in no.names
+    }
+
+    assert compartilhadas <= set(origem)
+    assert {origem[nome] for nome in compartilhadas} == {"credito.data.prepare"}
 
 
 def test_coluna_sem_regra_de_negocio_reporta_campo_invalido():
