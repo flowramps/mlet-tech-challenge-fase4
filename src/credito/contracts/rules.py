@@ -35,7 +35,7 @@ REGRAS: tuple[Regra, ...] = (
         motivo=(
             "29.731 de 150.000 linhas do arquivo bruto (19,8%) vêm sem renda. Nelas, "
             "DebtRatio guarda a dívida bruta em vez da razão — 90% ficam acima de 10, "
-            "contra 1,8% entre as que têm renda. Barrar a renda nula corrige os dois "
+            "contra 1,75% entre as que têm renda. Barrar a renda nula corrige os dois "
             "campos de uma vez, porque é um defeito só."
         ),
     ),
@@ -86,7 +86,7 @@ REGRAS: tuple[Regra, ...] = (
         descricao=f"DebtRatio entre 0 e {DEBT_RATIO_MAXIMO}",
         motivo=(
             "Rede de segurança para o caso de a renda vir preenchida mas incorreta: entre "
-            "os registros com renda válida, 1,8% ainda passam de 10."
+            "os registros com renda válida, 1,75% ainda passam de 10."
         ),
     ),
 )

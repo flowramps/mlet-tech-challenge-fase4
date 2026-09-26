@@ -414,9 +414,14 @@ make demo-contrato  # mostra o contrato bloqueando um lote adulterado
 Rodar `make train` uma segunda vez **não falha**: o retreino reproduz o incumbente, o gate
 recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto.
 
-Este percurso foi executado em um clone limpo, e não apenas descrito: o
-`models/model.joblib` produzido lá tem md5 `567d4533bf2f46c425d22e59adcd8aac`, o mesmo do
-artefato gerado no repositório de desenvolvimento. O treino é determinístico ponta a ponta.
+Este percurso foi executado em um clone limpo, e não apenas descrito: partindo de um
+`git clone` novo, `make data` baixou o arquivo do OpenML e `make train` produziu um
+`models/model.joblib` com md5 `567d4533bf2f46c425d22e59adcd8aac` — o mesmo do artefato
+gerado no repositório de desenvolvimento. Com a semente fixa, portanto, **duas execuções
+independentes a partir do mesmo commit produziram o artefato byte a byte idêntico**. As
+duas rodaram na mesma máquina, mesmo sistema operacional e mesmo Python 3.12.13; a
+reprodutibilidade entre plataformas ou versões de biblioteca diferentes não foi verificada
+e não está sendo afirmada aqui.
 
 Toda configuração é resolvida por variável de ambiente com o prefixo `CREDITO_`
 (ver `.env.example` e `src/credito/config.py`); nenhuma é obrigatória — os defaults são os
