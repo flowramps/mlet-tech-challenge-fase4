@@ -38,14 +38,20 @@ class ModelNotPromoted(RuntimeError):  # noqa: N818
     """
 
 
-def motivos_de_reprovacao(
+def motivos_de_piso_absoluto(
     candidato: dict[str, float],
-    incumbente: dict[str, float] | None,
     *,
     min_auc_pr: float,
     min_recall_positivo: float,
 ) -> list[str]:
-    """Lista, em texto, cada critério do gate que o candidato não cumpriu."""
+    """Critérios de piso absoluto que o candidato não cumpriu.
+
+    Separada de :func:`motivos_de_regressao` porque as duas listas levam a desfechos
+    opostos — esta vira :class:`QualityGateError`, a outra vira :class:`ModelNotPromoted` —
+    e essa decisão precisa ser tomada sobre **qual lista** trouxe o motivo, nunca sobre o
+    texto dele. Um critério futuro de drift cuja frase também dissesse "abaixo do piso"
+    transformaria um desfecho normal numa falha do run, e nada quebraria para avisar.
+    """
     motivos: list[str] = []
 
     if candidato["auc_pr"] < min_auc_pr:
@@ -56,19 +62,56 @@ def motivos_de_reprovacao(
             f"{min_recall_positivo:.4f}"
         )
 
-    if incumbente is not None:
-        if candidato["auc_pr"] <= incumbente["auc_pr"]:
-            motivos.append(
-                f"auc_pr {candidato['auc_pr']:.4f} não supera o modelo em produção "
-                f"({incumbente['auc_pr']:.4f})"
-            )
-        if candidato["recall_positivo"] < incumbente["recall_positivo"]:
-            motivos.append(
-                f"recall_positivo {candidato['recall_positivo']:.4f} regride em relação ao "
-                f"modelo em produção ({incumbente['recall_positivo']:.4f})"
-            )
+    return motivos
+
+
+def motivos_de_regressao(
+    candidato: dict[str, float],
+    incumbente: dict[str, float] | None,
+) -> list[str]:
+    """Critérios de não regressão frente ao modelo em produção que o candidato não cumpriu.
+
+    Sem incumbente não há com o que regredir, e a lista sai vazia — é o caso da primeira
+    execução. Reprovar aqui não é defeito: o candidato é utilizável, só não é melhor.
+    """
+    if incumbente is None:
+        return []
+
+    motivos: list[str] = []
+
+    if candidato["auc_pr"] <= incumbente["auc_pr"]:
+        motivos.append(
+            f"auc_pr {candidato['auc_pr']:.4f} não supera o modelo em produção "
+            f"({incumbente['auc_pr']:.4f})"
+        )
+    if candidato["recall_positivo"] < incumbente["recall_positivo"]:
+        motivos.append(
+            f"recall_positivo {candidato['recall_positivo']:.4f} regride em relação ao "
+            f"modelo em produção ({incumbente['recall_positivo']:.4f})"
+        )
 
     return motivos
+
+
+def motivos_de_reprovacao(
+    candidato: dict[str, float],
+    incumbente: dict[str, float] | None,
+    *,
+    min_auc_pr: float,
+    min_recall_positivo: float,
+) -> list[str]:
+    """Lista, em texto, cada critério do gate que o candidato não cumpriu.
+
+    A concatenação das duas listas, na ordem em que o histórico as registra. Quem precisa
+    **decidir** entre falhar e pular chama as duas separadamente; esta existe para quem só
+    precisa do relato completo, como o registro de auditoria.
+    """
+    return [
+        *motivos_de_piso_absoluto(
+            candidato, min_auc_pr=min_auc_pr, min_recall_positivo=min_recall_positivo
+        ),
+        *motivos_de_regressao(candidato, incumbente),
+    ]
 
 
 def deve_promover(

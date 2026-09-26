@@ -13,6 +13,8 @@ from credito.pipeline.steps import (
     ModelNotPromoted,
     QualityGateError,
     deve_promover,
+    motivos_de_piso_absoluto,
+    motivos_de_regressao,
     motivos_de_reprovacao,
     registrar_historico,
 )
@@ -59,6 +61,40 @@ def test_ganho_tecnico_com_perda_de_negocio_nao_promove():
     # e o teste deixaria de isolar o critério que quer provar.
     trocado = {"auc_pr": 0.50, "recall_positivo": 0.65}
 
+    assert deve_promover(trocado, BONS, **PISOS) is False
+
+
+def test_reprovacao_por_regressao_nao_aparece_na_lista_de_piso():
+    # O ponto da separação: um candidato que só não supera o incumbente não pode deixar
+    # nenhum motivo na lista de piso absoluto, porque é ela que o pipeline converte em
+    # falha do run. Se as duas listas se misturassem, o retreino sobre dado estático —
+    # o caso mais comum de todos — passaria a falhar.
+    piso = {"min_auc_pr": 0.30, "min_recall_positivo": 0.60}
+
+    assert motivos_de_piso_absoluto(BONS, **piso) == []
+    assert motivos_de_regressao(BONS, dict(BONS)) != []
+
+
+def test_reprovacao_por_piso_nao_aparece_na_lista_de_regressao():
+    # O simétrico: um candidato inutilizável reprova no piso mesmo sem incumbente nenhum,
+    # e a lista de regressão fica vazia — não há com o que comparar na primeira execução.
+    ruim = {"auc_pr": 0.10, "recall_positivo": 0.20}
+
+    assert motivos_de_piso_absoluto(ruim, **PISOS) != []
+    assert motivos_de_regressao(ruim, None) == []
+
+
+def test_motivos_de_reprovacao_e_a_concatenacao_das_duas_listas():
+    # `deve_promover` e o pipeline decidem sobre listas diferentes — um sobre a
+    # concatenação, o outro sobre as duas partes. Este teste é o que garante que as duas
+    # leituras não podem discordar: um critério acrescentado a só uma das partes e
+    # esquecido na composição sairia do relato de auditoria sem sair do desfecho.
+    trocado = {"auc_pr": 0.20, "recall_positivo": 0.65}
+
+    assert motivos_de_reprovacao(trocado, BONS, **PISOS) == [
+        *motivos_de_piso_absoluto(trocado, **PISOS),
+        *motivos_de_regressao(trocado, BONS),
+    ]
     assert deve_promover(trocado, BONS, **PISOS) is False
 
 

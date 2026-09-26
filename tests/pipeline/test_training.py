@@ -171,6 +171,29 @@ def test_contrato_reprovado_interrompe_antes_de_treinar(ambiente, monkeypatch):
     assert not (ambiente / "metrics" / "metrics.json").exists()
 
 
+def test_motivo_de_regressao_com_texto_de_piso_continua_sendo_skip(ambiente, monkeypatch):
+    """A escolha entre falhar e pular lê qual lista trouxe o motivo, não o texto dele.
+
+    A versão anterior decidia procurando "abaixo do piso" na prosa dos motivos, que o gate
+    escreve para humano ler no histórico. A Etapa 2 acrescenta critérios de drift, e
+    "estabilidade abaixo do piso" é uma frase natural para um deles: pela busca em texto,
+    uma não promoção rotineira viraria falha do run e todo pipeline periódico ficaria
+    vermelho — sem nada quebrar para avisar. Verificado restaurando a busca por texto:
+    este teste fica vermelho e nenhum outro se mexe.
+    """
+    monkeypatch.setattr(
+        "credito.pipeline.training.motivos_de_regressao",
+        lambda candidato, incumbente: (
+            ["estabilidade 0.1200 abaixo do piso 0.2000"] if incumbente is not None else []
+        ),
+    )
+
+    executar_pipeline()
+
+    with pytest.raises(ModelNotPromoted):
+        executar_pipeline()
+
+
 def test_piso_violado_falha_o_run_e_nao_publica(ambiente, monkeypatch):
     # O outro desfecho do gate: piso absoluto é defeito, o run tem de falhar e nada pode
     # ser publicado. Um piso de 0,99 em AUC-PR é inalcançável sobre este dado.

@@ -27,17 +27,12 @@ from credito.model.train import (
 from credito.pipeline.steps import (
     ModelNotPromoted,
     QualityGateError,
-    deve_promover,
-    motivos_de_reprovacao,
+    motivos_de_piso_absoluto,
+    motivos_de_regressao,
     registrar_historico,
 )
 
 logger = logging.getLogger(__name__)
-
-# Trecho que identifica, no texto do motivo, a reprovação por piso absoluto. O gate
-# devolve motivos em prosa para serem lidos por humano no histórico; aqui eles precisam
-# ser separados por classe, e esta constante é o único ponto onde os dois usos se tocam.
-_MARCA_DE_PISO = "abaixo do piso"
 
 
 def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
@@ -90,18 +85,18 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
             "recall_positivo": metadados["recall_positivo"],
         }
 
-    motivos = motivos_de_reprovacao(
+    # As duas listas vêm separadas da origem porque é delas que sai o desfecho: piso
+    # absoluto falha o run, regressão frente ao incumbente vira skip. `promovido` é
+    # `not motivos` por construção, em vez de uma segunda avaliação dos mesmos critérios
+    # que pudesse discordar da primeira.
+    piso_violado = motivos_de_piso_absoluto(
         metricas_teste,
-        incumbente,
         min_auc_pr=settings.min_auc_pr,
         min_recall_positivo=settings.min_recall_positivo,
     )
-    promovido = deve_promover(
-        metricas_teste,
-        incumbente,
-        min_auc_pr=settings.min_auc_pr,
-        min_recall_positivo=settings.min_recall_positivo,
-    )
+    regressao = motivos_de_regressao(metricas_teste, incumbente)
+    motivos = [*piso_violado, *regressao]
+    promovido = not motivos
 
     # O histórico é gravado antes de qualquer desfecho: uma execução reprovada é
     # exatamente a que alguém vai querer auditar depois, e ela não pode sumir do registro
@@ -116,11 +111,13 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
 
     if not promovido:
         # A ordem importa: o piso absoluto é defeito e precisa falhar o run; a não
-        # superação do incumbente é desfecho normal e precisa virar skip.
-        piso_violado = [motivo for motivo in motivos if _MARCA_DE_PISO in motivo]
+        # superação do incumbente é desfecho normal e precisa virar skip. A escolha lê
+        # qual lista trouxe o motivo, não o texto dele — buscar uma marca em prosa
+        # devolveria a decisão a quem escreve a frase do critério, e um critério de drift
+        # que dissesse "abaixo do piso" passaria a pintar de vermelho todo run periódico.
         if piso_violado:
             raise QualityGateError("; ".join(piso_violado))
-        raise ModelNotPromoted("; ".join(motivos))
+        raise ModelNotPromoted("; ".join(regressao))
 
     # metrics.json só é gravado na promoção: descrever um candidato recusado enquanto
     # outro modelo está servindo torna o arquivo enganoso.

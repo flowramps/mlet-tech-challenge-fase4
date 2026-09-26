@@ -319,6 +319,14 @@ Se fossem a mesma exceção, o pipeline periódico ficaria vermelho da segunda e
 diante e o alarme perderia o sentido. As duas classes são deliberadamente **independentes**
 — nenhuma herda da outra, e um teste garante isso.
 
+O gate produz os motivos já **separados por desfecho** (`motivos_de_piso_absoluto` e
+`motivos_de_regressao`), e o pipeline decide olhando qual das duas listas veio preenchida.
+A decisão já foi tomada procurando `"abaixo do piso"` na prosa dos motivos, que existe para
+ser lida por humano no histórico: correto naquele momento, e quebrado no instante em que um
+critério novo — um piso de estabilidade de distribuição, por exemplo — escolhesse a mesma
+palavra. Um teste (`test_motivo_de_regressao_com_texto_de_piso_continua_sendo_skip`) fixa
+que o texto do motivo não decide nada.
+
 ### A prova dos dois desfechos, rodando
 
 Sequência real a partir de `models/` e `metrics/` vazios:
