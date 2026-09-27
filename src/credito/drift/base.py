@@ -81,7 +81,18 @@ class DriftDeFeature:
 
     ``psi_divergencia`` e ``ks_p_valor`` apontam em sentidos opostos (ver o docstring do
     módulo) — os nomes carregam essa direção para que a confusão vire erro de digitação
-    óbvio, não um alarme invertido que só alguém desconfiado do painel nota.
+    óbvio, não um alarme invertido que só alguém desconfiado do painel nota. Nomear o campo
+    certo, porém, só evita erro de **posição**; não evita que alguém escreva
+    ``ks_p_valor=resultado.estatistica`` — os dois são ``float`` no mesmo tipo, e nada
+    barraria essa troca no momento da chamada. ``__post_init__`` fecha a lacuna que o nome
+    sozinho não fecha: recalcula ``classificar(psi_divergencia)`` e reprova qualquer
+    ``severidade`` que discorde, e reprova ``ks_p_valor`` fora de ``[0, 1]`` — um p-valor
+    ali é uma impossibilidade de domínio, não uma convenção violada. Isso não pega toda
+    troca possível: a estatística do KS também vive em ``[0, 1]``, então uma troca
+    ``ks_p_valor`` ↔ estatística passa batido por este check. O que ele pega é a classe de
+    bug mais provável — colar o PSI errado (que rotineiramente passa de 1, ver
+    ``drift/statistics.py``) no campo do p-valor, ou herdar um ``NaN``/valor fora de escala
+    de um cálculo anterior quebrado.
     """
 
     feature: str
@@ -89,28 +100,57 @@ class DriftDeFeature:
     ks_p_valor: float
     severidade: Severidade
 
+    def __post_init__(self) -> None:
+        esperada = classificar(self.psi_divergencia)
+        if esperada is not self.severidade:
+            raise ValueError(
+                f"severidade {self.severidade.name} não corresponde a "
+                f"classificar(psi_divergencia={self.psi_divergencia!r}) = {esperada.name} "
+                f"(feature={self.feature!r})"
+            )
+        if not (0.0 <= self.ks_p_valor <= 1.0):
+            raise ValueError(
+                f"ks_p_valor {self.ks_p_valor!r} fora do intervalo [0, 1] "
+                f"(feature={self.feature!r})"
+            )
+
 
 @dataclass(frozen=True)
 class DriftReport:
     """Desfecho da checagem de drift de um lote inteiro: uma ``DriftDeFeature`` por
     feature medida. Nunca é erguido como exceção — só existe para ser lido, resumido e
-    inspecionado (ver o docstring do módulo)."""
+    inspecionado (ver o docstring do módulo).
+
+    ``features`` vazio é rejeitado em ``__post_init__``, não tolerado como "lote sem
+    drift". A tentação óbvia era deixar ``severidade_maxima`` devolver ``ESTAVEL`` nesse
+    caso, por analogia a ``ValidationResult.valido`` em ``contracts/base.py`` — mas a
+    analogia não se sustenta: ``ValidationResult`` sempre carrega ``total`` ao lado de
+    ``violacoes``, então um lote com zero violações e zero linhas continua visível como tal.
+    ``DriftReport`` não tem campo irmão nenhum para ``features`` — um detector que travou,
+    foi mal configurado, ou perdeu toda feature no caminho produz exatamente
+    ``features=()``, e devolver ``ESTAVEL`` faria esse bug se disfarçar de "tudo saudável",
+    que é o único jeito de falhar que uma fronteira de drift não pode ter. Rejeitar na
+    construção dissolve a pergunta em vez de arriscar respondê-la errado na leitura.
+    """
 
     lote: str
     features: tuple[DriftDeFeature, ...]
+
+    def __post_init__(self) -> None:
+        if not self.features:
+            raise ValueError(
+                f"DriftReport do lote {self.lote!r} não tem nenhuma feature — um relatório "
+                "sobre zero features é bug (detector travado, mal configurado, ou que "
+                "perdeu toda feature), não um achado de drift"
+            )
 
     @property
     def severidade_maxima(self) -> Severidade:
         """A pior severidade entre as features do lote.
 
-        Um relatório sem nenhuma feature devolve ``ESTAVEL`` — decidido, não uma exceção
-        por tirar o máximo de uma sequência vazia. O raciocínio espelha
-        ``ValidationResult.valido`` em ``contracts/base.py``: na ausência de qualquer
-        feature medida não há evidência de deslocamento nenhuma, e o piso seguro para
-        reportar é "nada indica drift".
+        ``features`` nunca é vazio aqui — ``__post_init__`` já rejeitou essa construção —,
+        então este ``max`` nunca vê uma sequência vazia e não precisa de caso especial.
         """
-        if not self.features:
-            return Severidade.ESTAVEL
         return max((feature.severidade for feature in self.features), key=lambda s: s.value)
 
     @property
