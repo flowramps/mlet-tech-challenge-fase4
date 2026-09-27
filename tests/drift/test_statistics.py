@@ -1,15 +1,27 @@
 """PSI e KS precisam ser conferíveis na mão — por isso são medidos aqui contra
-distribuições sintéticas simples, nunca contra o arquivo do dataset. O teste central desta
-suíte (`test_variavel_discreta_zero_inflada_...`) reproduz uma descoberta feita medindo o
-Dataset de Produção simulado na Etapa 2: `NumberOfTime30-59DaysPastDueNotWorse` tem 14
-valores distintos e 83,1% de zeros na Referência real; entre o mês 0 e o mês 6 da
-simulação seus zeros caem para 70,9% e a média mais que dobra — deslocamento real e
-grande. Sob binning por quantil (o padrão ingênuo), esse deslocamento mede PSI ≈ 0,090,
-abaixo do limiar de 0,10 que a convenção do setor chama de "estável". Sob binning por
-valor (um bin por valor distinto), o mesmo par de amostras mede PSI ≈ 0,14, na banda de
-atenção. A causa é mecânica: 83% de massa num único valor consome a maior parte dos 10
-cortes de quantil pedidos, que colapsam (via `np.unique`) a só 2 ou 3 cortes efetivos —
-sem erro, sem exceção, só um número que mente por padrão.
+distribuições sintéticas simples, nunca contra o arquivo do dataset. Dois testas centrais
+desta suíte reproduzem a mesma descoberta em duas formas diferentes que ela assume:
+
+- `test_variavel_discreta_zero_inflada_dispara_o_binning_por_valor`: réplica de
+  `NumberOfTime30-59DaysPastDueNotWorse` (14 valores distintos, 83,1% de zeros na
+  Referência real, subindo para 70,9% na Produção simulada da Etapa 2 com a média mais
+  que dobrando). Baixa cardinalidade *e* concentrada.
+- `test_alta_cardinalidade_com_massa_concentrada_dispara_o_binning_por_valor`: réplica de
+  `DebtRatio` (107.998 valores distintos na Referência real) sob o clip de contrato que o
+  simulador de Produção da Etapa 2 aplica (`aplicar_drift_de_divida`), que cria uma massa
+  pontual em 10,0 que a Referência não tem. Alta cardinalidade *e* concentrada — a prova
+  de que cardinalidade sozinha não seria um roteador seguro: esta variável teria mais
+  valores distintos que qualquer limiar razoável e ainda assim colapsa os cortes de
+  quantil pedidos.
+
+Em ambos os casos, sob binning por quantil (o padrão ingênuo) o deslocamento mede PSI
+abaixo de 0,10 ("estável" pela convenção do setor); sob binning por valor (um bin por
+valor distinto da Referência), o mesmo par de amostras mede acima de 0,10. A causa é
+mecânica, não estatística: massa concentrada demais consome os cortes de quantil pedidos,
+que colapsam (via `np.unique`) a menos cortes do que os pedidos — sem erro, sem exceção,
+só um número que mente por padrão. `psi()` mede esse colapso diretamente (compara quantos
+cortes `bins_por_quantil` devolveu contra quantos foram pedidos) em vez de inferir a
+partir da cardinalidade da Referência.
 """
 
 from __future__ import annotations
@@ -18,7 +30,6 @@ import numpy as np
 import pytest
 
 from credito.drift.statistics import (
-    LIMIAR_CARDINALIDADE_DISCRETA,
     ResultadoKS,
     _psi_a_partir_dos_cortes,
     bins_por_quantil,
@@ -65,6 +76,26 @@ def test_psi_e_simetrico_o_bastante_para_deslocamentos_pequenos():
     invertido = psi(atual, referencia)
 
     assert direto == pytest.approx(invertido, rel=0.2)
+
+
+def test_sem_colapso_usa_quantil_nao_valor():
+    # Fronteira exata do roteamento: quando bins_por_quantil devolve os 10 cortes
+    # inteiros pedidos (nenhum colapso), psi() precisa usar esses cortes de quantil, não
+    # cair para bins_por_valor. `len(cortes) - 1` nunca é maior que `bins` — só pode ser
+    # igual (sem colapso) ou menor (colapso) — então uma comparação `<=` no lugar de `<`
+    # trocaria essa igualdade por colapso e um contínuo sem concentração alguma passaria
+    # a usar um bin por valor distinto (milhares deles) o tempo todo. Comparar o PSI
+    # devolvido por `psi()` bit a bit contra o calculado manualmente com
+    # `bins_por_quantil` prova qual caminho foi tomado.
+    gerador = np.random.default_rng(SEED)
+    referencia = gerador.normal(0.0, 1.0, 5000)
+    atual = gerador.normal(0.3, 1.0, 5000)
+
+    cortes_quantil = bins_por_quantil(referencia, bins=10)
+    assert len(cortes_quantil) - 1 == 10  # sem colapso: os 10 pedidos vieram inteiros
+
+    esperado = _psi_a_partir_dos_cortes(referencia, atual, cortes_quantil)
+    assert psi(referencia, atual, bins=10) == esperado
 
 
 def test_bin_vazio_nao_diverge():
@@ -146,19 +177,11 @@ def test_variavel_constante_na_referencia_nao_crasha():
     assert psi(referencia, atual) == pytest.approx(0.0, abs=1e-9)
 
 
-# --- A descoberta central: cardinalidade decide o binning, não um padrão único ---------
-
-
-def test_cardinalidade_medida_faz_o_limiar_cair_na_lacuna_real():
-    # Medido nas dez features da Referência real (117.917 linhas): as quatro colunas de
-    # atraso e NumberOfDependents ficam entre 10 e 17 valores distintos,
-    # NumberRealEstateLoansOrLines soma 28 — e o próximo salto é para 58
-    # (NumberOfOpenCreditLinesAndLoans). O limiar cai no meio dessa lacuna medida.
-    assert 28 < LIMIAR_CARDINALIDADE_DISCRETA < 58
+# --- A descoberta central: o roteamento mede colapso, não cardinalidade ---------------
 
 
 def test_variavel_discreta_zero_inflada_dispara_o_binning_por_valor():
-    """O teste que pega exatamente a descoberta desta tarefa.
+    """Uma das duas formas da descoberta desta tarefa: baixa cardinalidade concentrada.
 
     Réplica sintética da variável real: 14 valores distintos, 83,1% de zeros na
     referência (medido: `ref["NumberOfTime30-59DaysPastDueNotWorse"].nunique()` e
@@ -186,18 +209,53 @@ def test_variavel_discreta_zero_inflada_dispara_o_binning_por_valor():
     assert referencia.mean() > 0 and (referencia == 0).mean() == pytest.approx(0.831, abs=0.01)
     assert atual.mean() > referencia.mean() * 2
 
-    # O suporte tem 14 valores possíveis (0 a 13); o mais raro (peso ~1,2 em 20.000
-    # sorteios) pode não aparecer em toda seed — o que importa para o roteamento é que a
-    # cardinalidade observada fique bem abaixo do limiar, não o valor exato.
-    cardinalidade_observada = len(np.unique(referencia))
-    assert 10 <= cardinalidade_observada <= 14
-    assert cardinalidade_observada <= LIMIAR_CARDINALIDADE_DISCRETA
+    cortes_quantil = bins_por_quantil(referencia, bins=10)
+    # O colapso é o próprio sinal de roteamento: bins=10 pedidos, menos que isso devolvido.
+    assert len(cortes_quantil) - 1 < 10
 
-    psi_quantil = _psi_a_partir_dos_cortes(referencia, atual, bins_por_quantil(referencia, bins=10))
-    psi_valor = psi(referencia, atual)  # roteia por cardinalidade: 14 <= limiar, usa bins_por_valor
+    psi_quantil = _psi_a_partir_dos_cortes(referencia, atual, cortes_quantil)
+    psi_valor = psi(referencia, atual)  # roteia por colapso medido, usa bins_por_valor
 
     assert psi_quantil < 0.10
     assert psi_valor >= 0.10
+
+
+def test_alta_cardinalidade_com_massa_concentrada_dispara_o_binning_por_valor():
+    """A outra forma da mesma descoberta: o contraexemplo que a cardinalidade sozinha
+    não veria.
+
+    Réplica da forma de `DebtRatio` sob o clip de contrato que o simulador de Produção
+    da Etapa 2 aplica (`aplicar_drift_de_divida`, que satura o resultado em
+    `DEBT_RATIO_MAXIMO`): uma variável **contínua** (aqui, ~17.600 valores distintos —
+    bem acima de qualquer limiar de cardinalidade que se pudesse escolher) com uma massa
+    pontual que cresce de 12% na Referência para 22% na atual. Um roteador que decidisse
+    pela cardinalidade da Referência mandaria isto para `bins_por_quantil` sem pestanejar
+    — e o PSI sairia abaixo de 0,10 mesmo a massa concentrada mais que dobrando de
+    tamanho, porque 12% de massa num único ponto já é o bastante para colapsar um dos 10
+    cortes de quantil pedidos (medido: `bins_por_quantil` devolve 9, não 10). Rotear pelo
+    colapso medido, não pela cardinalidade, pega o mesmo padrão aqui que pegou na
+    variável discreta.
+    """
+    gerador = np.random.default_rng(SEED)
+
+    def com_massa_pontual(fracao_pontual: float) -> np.ndarray:
+        continuo = gerador.uniform(0.0, 1.0, int(20_000 * (1 - fracao_pontual)))
+        pontual = np.full(20_000 - len(continuo), 10.0)
+        return np.concatenate([continuo, pontual])
+
+    referencia = com_massa_pontual(0.12)
+    atual = com_massa_pontual(0.22)
+
+    assert len(np.unique(referencia)) > 1000  # cardinalidade alta — não é discreta
+
+    cortes_quantil = bins_por_quantil(referencia, bins=10)
+    assert len(cortes_quantil) - 1 < 10  # o colapso que a cardinalidade sozinha não veria
+
+    psi_quantil = _psi_a_partir_dos_cortes(referencia, atual, cortes_quantil)
+    psi_valor = psi(referencia, atual)  # roteia por colapso medido, usa bins_por_valor
+
+    assert psi_quantil < 0.10
+    assert psi_valor >= 0.25
 
 
 def test_bins_por_valor_um_bin_por_valor_distinto():

@@ -26,8 +26,25 @@ Cinco features (10 a 28 valores distintos — três delas 83-95% concentradas nu
 valor: as duas colunas de atraso mais graves e `NumberOfTime30-59DaysPastDueNotWorse`)
 colapsam os 10 cortes de quantil pedidos a 1-4 cortes efetivos (`np.unique` depois de
 `np.quantile`) — medido rodando `bins_por_quantil` sobre cada uma. As outras cinco (58 e
-acima) preservam os 10 cortes pedidos sem colapso. `LIMIAR_CARDINALIDADE_DISCRETA` cai
-no meio dessa lacuna medida, não num número redondo escolhido por aparência.
+acima) preservam os 10 cortes pedidos sem colapso.
+
+Cardinalidade separa essas dez features corretamente, mas é uma *proxy*, não a causa: o
+mecanismo real é concentração de massa, não contagem de valores distintos. A prova de que
+a proxy quebra já mora no próprio projeto: `DebtRatio` tem 107.998 valores distintos — bem
+acima de qualquer limiar de cardinalidade razoável — e o simulador de Produção da Etapa 2
+(`credito.data.simulate.aplicar_drift_de_divida`) o satura (clip) em 10,0, criando uma
+massa pontual que a Referência não tem. Alta cardinalidade, massa concentrada: é
+exatamente o par que faz uma cardinalidade única errar, cardinalidade alta demais para
+qualquer limiar de "poucos valores" mas concentrada o bastante para colapsar cortes de
+quantil do mesmo jeito que a variável de atraso colapsa.
+
+Por isso `psi()` não decide a estratégia de binning pela cardinalidade da Referência — ela
+mede o colapso diretamente: calcula `bins_por_quantil(referencia, bins=bins)` e verifica
+se o número de bins que sobrou depois da deduplicação (`np.unique`) é menor que o número
+pedido. Um cardinalidade recebe algum sinal, mas o próprio ato de pedir `bins` cortes e
+não recebê-los de volta *é* a medição de que massa demais se concentra em menos pontos do
+que os quantis pedidos — não uma extrapolação da cardinalidade para outras variáveis que
+ninguém mediu.
 
 Para `NumberOfTime30-59DaysPastDueNotWorse` especificamente: entre o mês 0 e o mês 6 do
 simulador de Produção da Etapa 2 (`credito.data.simulate.simular_producao`, seed=42,
@@ -43,12 +60,6 @@ from typing import NamedTuple
 
 import numpy as np
 from scipy import stats
-
-# Ver a medição completa no docstring do módulo: com bins=10, cardinalidade até 28
-# colapsa os cortes de quantil pedidos; cardinalidade a partir de 58 preserva todos os
-# 10. O limiar cai no meio dessa lacuna medida entre 28 e 58 — não é o "10" ou "20"
-# redondos que pareceriam naturais escolhidos sem medir.
-LIMIAR_CARDINALIDADE_DISCRETA = 50
 
 # PSI não tem log(0): uma proporção zero em qualquer bin faz a fórmula divergir
 # (`log(0)` é `-inf`). A suavização substitui zero por um valor pequeno o bastante para
@@ -81,12 +92,13 @@ def bins_por_quantil(referencia: np.ndarray, *, bins: int) -> np.ndarray:
     pequeno para qualquer deslocamento, porque bins deslizantes absorvem o próprio
     deslocamento que deveriam medir.
 
-    Quando a massa da Referência se concentra (ex.: 90% de zeros), vários quantis
-    coincidem e ``np.quantile`` devolve cortes repetidos — que fariam ``np.histogram``
-    recusar o array por não ser estritamente crescente. ``np.unique`` deduplica.
-    Os dois extremos são abertos (±inf) para que um valor de Produção fora do intervalo
-    observado na Referência (a massa exata em ``DebtRatio == 10,0`` que o clip do
-    simulador cria, por exemplo) caia no bin extremo em vez de ser descartado do
+    Quando a massa da Referência se concentra (ex.: 90% de zeros, ou os 10,0 exatos que
+    o clip de ``DebtRatio`` produz), vários quantis coincidem e ``np.quantile`` devolve
+    cortes repetidos — que fariam ``np.histogram`` recusar o array por não ser
+    estritamente crescente. ``np.unique`` deduplica; ``psi`` usa o tamanho do resultado
+    para decidir se essa concentração é forte o bastante para trocar de estratégia (ver
+    ``psi``). Os dois extremos são abertos (±inf) para que um valor de Produção fora do
+    intervalo observado na Referência caia no bin extremo em vez de ser descartado do
     histograma sem contagem — o que inflaria falsamente o PSI ao fazer a proporção da
     atual não somar 1.
     """
@@ -103,7 +115,7 @@ def bins_por_quantil(referencia: np.ndarray, *, bins: int) -> np.ndarray:
 
 def bins_por_valor(referencia: np.ndarray) -> np.ndarray:
     """Um bin por valor distinto da Referência — a alternativa ao binning por quantil
-    para variáveis de baixa cardinalidade.
+    quando os cortes de quantil colapsam (ver ``psi``).
 
     Os cortes ficam nos pontos médios entre valores distintos consecutivos, o que faz
     cada valor observado na Referência cair no seu próprio bin de largura própria. Os
@@ -111,6 +123,9 @@ def bins_por_valor(referencia: np.ndarray) -> np.ndarray:
     maior ou menor que qualquer coisa vista na Referência (ex.: um novo patamar de
     atraso que a injeção de drift cria) precisa contar em algum bin, não desaparecer do
     histograma.
+
+    Devolve um corte por valor distinto **da Referência**, não do parâmetro ``bins`` de
+    ``psi`` — ver a nota sobre esse parâmetro no docstring de ``psi``.
     """
     valores = np.sort(np.unique(np.asarray(referencia, dtype=float)))
     if len(valores) < 2:
@@ -147,22 +162,38 @@ def psi(
     p-valor do KS, que é a confusão mais fácil de cometer com estes dois juntos (ver
     ``ResultadoKS``).
 
-    A estratégia de binning é escolhida pela cardinalidade da Referência, não é única
-    para todas as variáveis: cardinalidade até ``LIMIAR_CARDINALIDADE_DISCRETA`` usa um
-    bin por valor distinto (``bins_por_valor``); acima disso usa cortes de quantil
-    (``bins_por_quantil``). A razão é medida, não estética — ver o docstring do módulo:
-    sob quantil, a variável zero-inflada de baixa cardinalidade deste projeto mede PSI
-    abaixo do limiar de "estável" para um deslocamento que, medido por valor, está na
-    banda de atenção.
+    A estratégia de binning é escolhida medindo se o binning por quantil colapsa, não
+    pela cardinalidade da Referência — cardinalidade é uma *proxy* que a variável de
+    atraso e a de dívida deste projeto já provam que engana: a segunda tem mais de cem
+    mil valores distintos e ainda assim colapsa quando o clip de contrato concentra
+    massa num único ponto (ver o docstring do módulo). Colapso é definido de forma
+    estrita: se ``bins_por_quantil(referencia, bins=bins)`` devolve **menos** cortes do
+    que os ``bins`` pedidos — nem um a menos é tolerado —, ao menos um corte de quantil
+    coincidiu com o vizinho, o que só acontece quando massa concentrada demais para o
+    número de bins pedido. Uma regra por fração (só trocar se metade dos cortes
+    colapsar, por exemplo) toleraria perder resolução justamente na região concentrada
+    enquanto ainda chama isso de "quantil íntegro" — a regra estrita não tem essa lacuna:
+    qualquer colapso, por menor que seja, já é evidência medida de que os bins pedidos
+    não vieram, e a estratégia por valor nunca é pior (não depende de escala, só do que a
+    Referência realmente contém).
+
+    ``bins`` é o número de cortes de quantil pedidos; quando a variável colapsa e a
+    estratégia muda para ``bins_por_valor``, esse parâmetro deixa de valer — o número de
+    bins passa a ser o número de valores distintos da Referência, o que quer que seja,
+    não o que ``bins`` pediu.
+
+    PSI não enxerga um deslocamento de valor constante: quando a Referência não tem
+    variância (um só valor distinto), tanto ``bins_por_quantil`` quanto
+    ``bins_por_valor`` colapsam para um único bin, e a proporção de qualquer amostra
+    nesse bin é sempre 1,0 — o PSI sai sempre 0,0 mesmo que a atual seja uma constante
+    totalmente diferente. Não é acidente: é o limite matemático de uma divergência por
+    proporção quando só existe uma categoria possível.
     """
     referencia = np.asarray(referencia, dtype=float)
     atual = np.asarray(atual, dtype=float)
-    cardinalidade = len(np.unique(referencia))
-    cortes = (
-        bins_por_valor(referencia)
-        if cardinalidade <= LIMIAR_CARDINALIDADE_DISCRETA
-        else bins_por_quantil(referencia, bins=bins)
-    )
+    cortes_quantil = bins_por_quantil(referencia, bins=bins)
+    colapsou = (len(cortes_quantil) - 1) < bins
+    cortes = bins_por_valor(referencia) if colapsou else cortes_quantil
     return _psi_a_partir_dos_cortes(referencia, atual, cortes, epsilon=epsilon)
 
 
