@@ -24,6 +24,7 @@ from credito.drift.base import DriftDeFeature, DriftReport, Severidade
 from credito.model.train import salvar_modelo, treinar
 from credito.pipeline.monitoring import (
     _CANAL_POR_FEATURE,
+    ReferenciaInvalida,
     _narrativa_causal_versus_psi,
     executar_monitoramento,
     main,
@@ -201,6 +202,32 @@ def test_lote_invalido_falha_o_run_com_contrato_violado(ambiente, monkeypatch):
         executar_monitoramento(meses=6, seed=123)
 
 
+def test_referencia_invalida_e_distinta_do_lote_invalido(ambiente, monkeypatch):
+    """Regressão de revisão: se a própria Referência reprovar — antes de qualquer
+    simulação —, a causa é o arquivo real, nunca o gerador de produção simulada. Sem
+    `ReferenciaInvalida`, esta causa e a do teste acima (um lote SIMULADO reprovando)
+    levantariam o mesmo `ContratoViolado` genérico, e `main()` não teria como saber qual
+    mensagem escrever — acabaria sempre culpando o gerador, mesmo quando o defeito é no
+    arquivo real.
+    """
+
+    class _SempreRecusa:
+        def validar(self, frame):
+            return ValidationResult(
+                total=len(frame),
+                violacoes=(
+                    Violacao(
+                        regra="renda_nao_nula", coluna="MonthlyIncome", linhas=1, indices=(0,)
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr("credito.pipeline.monitoring.construir_validador", lambda: _SempreRecusa())
+
+    with pytest.raises(ReferenciaInvalida):
+        executar_monitoramento(meses=6, seed=123)
+
+
 def test_main_reporta_contrato_violado_como_defeito_do_gerador(ambiente, monkeypatch, caplog):
     import logging
 
@@ -217,6 +244,28 @@ def test_main_reporta_contrato_violado_como_defeito_do_gerador(ambiente, monkeyp
     # tarefa (drift não é invalidez; um lote inválido é defeito de quem o produziu).
     assert "gerador" in caplog.text
     assert "não drift" in caplog.text or "nao drift" in caplog.text
+
+
+def test_main_reporta_referencia_invalida_apontando_o_arquivo_nao_o_gerador(
+    ambiente, monkeypatch, caplog
+):
+    """O par exato do teste acima, para a outra causa: a mensagem tem que apontar o
+    arquivo real, e não pode mencionar o gerador — as duas causas precisam continuar
+    distinguíveis depois que `main()` traduz a exceção para o log, não só antes.
+    """
+    import logging
+
+    def _interrompe(**_kwargs):
+        raise ReferenciaInvalida("5 de 100 linha(s) reprovadas — renda_nao_nula (MonthlyIncome)")
+
+    monkeypatch.setattr("credito.pipeline.monitoring.executar_monitoramento", _interrompe)
+
+    with caplog.at_level(logging.INFO), pytest.raises(SystemExit) as saida:
+        main()
+
+    assert saida.value.code == 1
+    assert "arquivo" in caplog.text
+    assert "gerador" not in caplog.text
 
 
 def test_canal_por_feature_cobre_exatamente_as_variaveis_com_drift():
@@ -279,3 +328,54 @@ def test_narrativa_nao_alerta_quando_a_feature_de_maior_psi_de_fato_domina():
     narrativa = _narrativa_causal_versus_psi(relatorio, atribuicao)
 
     assert "não é a causa mais provável" not in narrativa
+
+
+def test_narrativa_distingue_sem_canal_isolado_de_degradacao_nao_mensuravel():
+    """Regressão de revisão: duas razões diferentes podem impedir o cálculo da fração, e
+    a narrativa não pode usar a mesma frase para as duas. Aqui a feature de maior PSI
+    (`NumberOfDependents`) é uma das sete que `credito.data.simulate` nunca desloca — não
+    tem canal causal isolado —, mas a degradação do lote está perfeitamente mensurada
+    (`efeito_conjunto=0.05 > 0`). Dizer "degradação não mensurável" seria falso.
+    """
+    relatorio = _relatorio("NumberOfDependents", 0.30)
+    atribuicao = {
+        "metrica": "auc_roc",
+        "degradacao_por_cenario": {
+            "renda": 0.0,
+            "divida": 0.0,
+            "atraso": 0.0,
+            "concept_drift": 0.05,
+            "nenhum_drift": 0.0,
+            "todos": 0.05,
+        },
+        "efeito_conjunto": 0.05,
+    }
+
+    narrativa = _narrativa_causal_versus_psi(relatorio, atribuicao)
+
+    assert "não tem canal isolado" in narrativa
+    assert "não mensurável" not in narrativa
+
+
+def test_narrativa_relata_degradacao_nao_mensuravel_quando_efeito_conjunto_e_zero():
+    """A outra metade do par: canal existe (`DebtRatio` mapeia para `divida`), mas o
+    efeito conjunto medido no lote não é positivo — aí sim a mensagem correta é
+    "degradação não mensurável", e não a de canal ausente."""
+    relatorio = _relatorio("DebtRatio", 0.30)
+    atribuicao = {
+        "metrica": "auc_roc",
+        "degradacao_por_cenario": {
+            "renda": 0.0,
+            "divida": 0.0,
+            "atraso": 0.0,
+            "concept_drift": 0.0,
+            "nenhum_drift": 0.0,
+            "todos": 0.0,
+        },
+        "efeito_conjunto": 0.0,
+    }
+
+    narrativa = _narrativa_causal_versus_psi(relatorio, atribuicao)
+
+    assert "não mensurável" in narrativa
+    assert "não tem canal isolado" not in narrativa

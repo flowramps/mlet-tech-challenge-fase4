@@ -16,6 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from credito.contracts.pandera_backend import construir_validador
 from credito.data.simulate import (
     VARIAVEIS_COM_DRIFT,
+    _desfazer_colisoes_de_atraso,
     aplicar_concept_drift,
     aplicar_drift_de_atraso,
     aplicar_drift_de_divida,
@@ -350,6 +351,44 @@ def test_aplicar_drift_de_atraso_nao_cria_duplicata_exata_por_colisao_de_quase_g
 
     assert resultado.duplicated().sum() == 0
     assert construir_validador().validar(resultado).valido
+
+
+def test_desfazer_colisoes_de_atraso_busca_para_baixo_quando_so_ha_vaga_abaixo():
+    """Regressão de revisão: a linha colidida começa em 10; todo valor de 4 a 20 já está
+    ocupado por outra linha idêntica em `FEATURES`; só o valor 3 está livre. Uma versão
+    anterior deste mecanismo só incrementava (e invertia para decrementar só ao tocar o
+    teto, voltando a incrementar no passo seguinte) — a partir de 10 ela nunca alcançava
+    3, ficava oscilando entre 19 e 20 até esgotar as tentativas e devolver o frame ainda
+    duplicado. A busca bidirecional (``valor±1``, ``valor±2``, ...) alcança 3 na sétima
+    distância testada.
+    """
+    base = {
+        "RevolvingUtilizationOfUnsecuredLines": 0.5,
+        "age": 30,
+        "DebtRatio": 0.3,
+        "MonthlyIncome": 3000.0,
+        "NumberOfOpenCreditLinesAndLoans": 5,
+        "NumberOfTimes90DaysLate": 0,
+        "NumberRealEstateLoansOrLines": 1,
+        "NumberOfTime60-89DaysPastDueNotWorse": 0,
+        "NumberOfDependents": 1.0,
+    }
+    linhas = [{**base, "NumberOfTime30-59DaysPastDueNotWorse": 10}]  # a duplicata original
+    linhas += [
+        {**base, "NumberOfTime30-59DaysPastDueNotWorse": valor}
+        for valor in range(4, 21)
+        if valor != 10
+    ]
+    indice_colidido = len(linhas)
+    linhas.append({**base, "NumberOfTime30-59DaysPastDueNotWorse": 10})  # a linha a mover
+
+    frame = pd.DataFrame(linhas)[list(FEATURES)]
+    assert frame.duplicated(keep=False).sum() == 2  # só o par em 10, antes de mover nada
+
+    resultado = _desfazer_colisoes_de_atraso(frame, indices=np.array([indice_colidido]))
+
+    assert resultado.loc[indice_colidido, "NumberOfTime30-59DaysPastDueNotWorse"] == 3
+    assert resultado[list(FEATURES)].duplicated().sum() == 0
 
 
 def test_todo_lote_passa_no_contrato(amostra):

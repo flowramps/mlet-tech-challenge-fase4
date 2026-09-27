@@ -13,10 +13,18 @@ legíveis separadamente.
 PSI/KS próprios -> Evidently (HTML). O contrato roda em TODO lote e precisa passar — é a
 demonstração viva de que drift não é invalidez (ver `contracts/base.py`): um lote
 deslocado continua sendo dado válido, e só o gate de drift, nunca o contrato, decide se o
-deslocamento preocupa. Quando um lote reprova o contrato, o run falha com
-`ContratoViolado`, e a causa está no GERADOR (`credito.data.simulate`), nunca no
-detector — `main()` traduz essa distinção para quem lê o log, o mesmo padrão que
-`pipeline.training.main` já usa para separar as causas de parada.
+deslocamento preocupa.
+
+**Duas causas diferentes levantam `ContratoViolado` aqui, e `main()` só consegue apontar a
+certa porque o código as distingue por TIPO, nunca por texto** (o mesmo princípio que
+`pipeline.steps` já aplica entre `QualityGateError` e `ModelNotPromoted`). Se a própria
+Referência reprovar — antes de qualquer simulação —, a causa é o arquivo real
+(desatualizado ou corrompido): `ReferenciaInvalida` (abaixo, subclasse de
+`ContratoViolado`) carrega essa origem. Se um LOTE SIMULADO reprovar, a causa é o GERADOR
+(`credito.data.simulate`) produzindo dado que o próprio contrato rejeitaria — o oposto do
+que a tarefa pede ("drift não é invalidez") —, e continua sendo um `ContratoViolado` comum.
+`main()` tem um `except` para cada uma, na ordem certa (a subclasse primeiro), e cada um
+loga a causa que de fato se aplica.
 
 **A amostra que a simulação desloca é a partição de teste da Referência** — nunca a
 Referência inteira. O campeão publicado já viu as linhas de treino; medir degradação
@@ -28,8 +36,10 @@ qual `scripts/verificar_degradacao.py` mede a monotonicidade.
 de entrada se moveu, nunca o quanto isso custou ao campeão** (ver `drift/gate.py`). Esta
 orquestração é o único lugar do projeto com acesso simultâneo ao campeão publicado E ao
 processo gerador controlável — por isso é o único lugar capaz de compor as duas leituras
-lado a lado: a degradação real (`degradacao_por_lote`) e a decomposição causal por
-intervenção (`atribuir_degradacao`) entram no relatório consolidado ANTES do veredicto de
+lado a lado: a degradação real (a mesma conta de `credito.drift.calibration.
+degradacao_por_lote` — `avaliar(modelo, lote)` —, reaproveitada das métricas já calculadas
+por lote em vez de recalculada) e a decomposição causal por intervenção
+(`atribuir_degradacao`) entram no relatório consolidado ANTES do veredicto de
 PSI/KS, não depois. Colocar a tabela de PSI primeiro deixaria o olho do leitor ancorar em
 "maior número" antes de aprender que PSI alto não é o mesmo que causa mais provável — é
 exatamente a armadilha que `_NOTA_DIAGNOSTICO`, em `drift/gate.py`, avisa sem números por
@@ -52,7 +62,6 @@ from credito.data.arff import ler_arff
 from credito.data.prepare import limpar, separar
 from credito.data.simulate import MESES, simular_producao
 from credito.drift.base import DriftDeFeature, DriftReport, Severidade, classificar
-from credito.drift.calibration import degradacao_por_lote
 from credito.drift.causal import atribuir_degradacao
 from credito.drift.evidently_backend import construir_detector
 from credito.drift.gate import CruzamentoDeFeature, GateDeDrift, avaliar_gate
@@ -62,6 +71,21 @@ from credito.model.train import carregar_modelo
 from credito.schema import FEATURES
 
 logger = logging.getLogger(__name__)
+
+
+class ReferenciaInvalida(ContratoViolado):
+    """A própria Referência (antes de qualquer simulação) reprovou o contrato de dados —
+    causa real: arquivo desatualizado ou corrompido, nunca o simulador de produção
+    (`credito.data.simulate`), que ainda nem rodou neste ponto do pipeline.
+
+    Subclasse de `ContratoViolado`, não um tipo à parte: um chamador que só soubesse lidar
+    com `ContratoViolado` continua funcionando sem precisar conhecer esta subclasse. A
+    razão de existir é permitir que `main()` distinga as duas causas pelo TIPO da exceção
+    — nunca remontando a mesma armadilha que `pipeline.steps` já documenta (rotear por
+    substring de mensagem, que classifica errado assim que duas causas escrevem frases
+    parecidas).
+    """
+
 
 # Mapeia cada variável que `credito.data.simulate` de fato desloca (`VARIAVEIS_COM_DRIFT`)
 # ao canal correspondente na atribuição causal por intervenção (`credito.drift.causal`),
@@ -154,10 +178,22 @@ def _narrativa_causal_versus_psi(
 
     degradacao = atribuicao_final["degradacao_por_cenario"]
     efeito_conjunto = atribuicao_final["efeito_conjunto"]
-    # Uma fração só faz sentido sobre degradação de fato medida (efeito_conjunto > 0) e
-    # sobre uma feature que a atribuição causal sabe decompor — as sete features que
-    # `credito.data.simulate` nunca desloca não têm canal isolado nenhum.
-    if canal is not None and efeito_conjunto > 0:
+    # Duas razões distintas podem impedir a fração de fazer sentido, e a mensagem precisa
+    # dizer qual das duas é a de fato — uma mensagem única para as duas afirmaria "não
+    # mensurável" mesmo quando a degradação era perfeitamente mensurável e o único
+    # problema era a feature não ter canal isolado (as sete que `credito.data.simulate`
+    # nunca desloca).
+    if canal is None:
+        linhas.append(
+            f"{maior_psi.feature} não tem canal isolado na atribuição causal por "
+            "intervenção — a comparação entre PSI e causa não se aplica a ela."
+        )
+    elif efeito_conjunto <= 0:
+        linhas.append(
+            "Degradação não mensurável neste lote (efeito_conjunto <= 0) — a comparação "
+            "entre PSI e causa fica sem base neste ponto da janela."
+        )
+    else:
         fracao_da_feature = degradacao[canal] / efeito_conjunto
         fracao_do_concept = degradacao["concept_drift"] / efeito_conjunto
         linhas.append(
@@ -172,11 +208,6 @@ def _narrativa_causal_versus_psi(
                 "neste lote — PSI mede onde a distribuição se moveu, não quanto isso "
                 "custou (ver credito.drift.causal.atribuir_degradacao)."
             )
-    else:
-        linhas.append(
-            "Degradação não mensurável neste lote (efeito_conjunto <= 0) — a comparação "
-            "entre PSI e causa fica sem base neste ponto da janela."
-        )
 
     linhas.append(
         "Nota: PSI e KS são diagnóstico — onde a distribuição de entrada se moveu. A "
@@ -223,12 +254,13 @@ def _gravar_relatorio_consolidado(diretorio: Path, resultado: dict[str, Any]) ->
 def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
     """Roda o pipeline de drift completo, lote a lote, e devolve o veredicto consolidado.
 
-    Levanta `ContratoViolado` se a própria Referência, ou algum dos `meses` lotes
-    simulados, reprovar o contrato de dados. O mês 0 (a amostra sem nenhum drift) não
+    Levanta `ReferenciaInvalida` se a própria Referência reprovar o contrato (arquivo real
+    desatualizado ou corrompido), e `ContratoViolado` (o tipo base, não a subclasse) se
+    algum dos `meses` lotes SIMULADOS reprovar — aí a causa é o gerador
+    (`credito.data.simulate`), nunca o dado real. O mês 0 (a amostra sem nenhum drift) não
     entra no laço de `meses` lotes por definição: ele é idêntico à amostra que já foi
-    validada antes de simular. Um lote reprovado aqui é um defeito do GERADOR
-    (`credito.data.simulate`), nunca do detector de drift — `main()` traduz essa
-    distinção para quem lê o log.
+    validada antes de simular. `main()` tem um `except` para cada uma dessas duas causas
+    (ver o docstring do módulo).
     """
     settings = get_settings()
     validador = construir_validador()
@@ -236,8 +268,13 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
 
     referencia, _ = limpar(ler_arff(settings.dataset_path))
     # A Referência precisa passar no próprio contrato antes de qualquer coisa — o mesmo
-    # bloqueio que `pipeline.training.executar_pipeline` já aplica.
-    validador.validar(referencia[list(FEATURES)]).erguer()
+    # bloqueio que `pipeline.training.executar_pipeline` já aplica. Reaproveita a mensagem
+    # que `erguer()` já monta (nunca duplica esse formato) e só troca o TIPO da exceção,
+    # para que `main()` consiga apontar o arquivo real como causa, não o gerador.
+    try:
+        validador.validar(referencia[list(FEATURES)]).erguer()
+    except ContratoViolado as erro:
+        raise ReferenciaInvalida(str(erro)) from erro
 
     particoes = separar(
         referencia,
@@ -279,8 +316,12 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
 
     gate = avaliar_gate(relatorios_proprios)
 
-    lotes_simulados = {nome: lotes[nome] for nome in nomes_dos_lotes}
-    degradacao = degradacao_por_lote(modelo, lotes_simulados)
+    # A degradação real por lote já foi calculada dentro do laço acima (`metricas_do_
+    # campeao`, a mesma chamada a `avaliar` que `credito.drift.calibration.
+    # degradacao_por_lote` faria de novo sobre o mesmo modelo e o mesmo lote) — reaproveitar
+    # evita uma segunda passagem redundante e garante que as duas leituras não possam
+    # divergir por terem sido calculadas duas vezes.
+    degradacao = {nome: dados["metricas_campeao"] for nome, dados in relatorio_por_lote.items()}
 
     atribuicao_causal = {
         f"mes_{mes:02d}": atribuir_degradacao(amostra, modelo, mes=mes, seed=seed)
@@ -309,17 +350,25 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
 def main() -> None:
     """Ponto de entrada do `make monitor`.
 
-    `ContratoViolado` aqui tem uma causa diferente da que `pipeline.training.main` trata:
-    lá, é a Referência real que reprova (defeito na limpeza ou no dado bruto); aqui pode
-    ser um LOTE SIMULADO que reprova — a simulação (`credito.data.simulate`) produzindo
-    dado que o próprio contrato rejeitaria, o oposto do que a tarefa pede ("drift não é
-    invalidez"). O log separa as duas causas para quem lê não confundir "o dado real está
-    ruim" com "o gerador de produção simulada tem um defeito".
+    Duas causas diferentes de `ContratoViolado` merecem duas mensagens diferentes (ver o
+    docstring do módulo), e a distinção é feita pelo TIPO da exceção, nunca pelo texto: o
+    `except ReferenciaInvalida` precisa vir ANTES do `except ContratoViolado` porque
+    `ReferenciaInvalida` é subclasse — na ordem inversa, o `except` mais genérico capturaria
+    as duas causas e a distinção deixaria de existir na prática, mesmo com os dois blocos
+    escritos.
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     settings = get_settings()
     try:
         resultado = executar_monitoramento(seed=settings.random_seed)
+    except ReferenciaInvalida as erro:
+        logger.error(
+            "a Referência real reprovou o contrato de dados antes de qualquer "
+            "simulação — arquivo desatualizado ou corrompido, não um defeito do "
+            "simulador (credito.data.simulate): %s",
+            erro,
+        )
+        sys.exit(1)
     except ContratoViolado as erro:
         logger.error(
             "a simulação de produção gerou um lote que reprova o contrato de dados — "

@@ -179,9 +179,20 @@ def _desfazer_colisoes_de_atraso(frame: pd.DataFrame, *, indices: np.ndarray) ->
     Só as linhas que a própria injeção tocou (``indices``) são candidatas a mover — uma
     colisão que envolvesse uma linha que a injeção não tocou seria um defeito em outro
     lugar do pipeline, não algo que este mecanismo deveria mascarar. Mover significa
-    caminhar a MESMA linha para o próximo valor de atraso ainda dentro do teto de
+    caminhar a MESMA linha para outro valor de atraso ainda dentro do teto de
     plausibilidade (``ATRASO_MAXIMO_PLAUSIVEL``) até a duplicata desaparecer — nunca
     inventar um valor fora do que a própria injeção já poderia ter sorteado.
+
+    A busca é **bidirecional e alterna a cada distância**: a partir do valor colidido,
+    tenta ``valor+1``, depois ``valor-1``, depois ``valor+2``, ``valor-2``, e assim por
+    diante — nunca só sobe. Uma versão anterior só incrementava (e só invertia para
+    decrementar exatamente no teto, voltando a incrementar no passo seguinte), o que a
+    deixava incapaz de alcançar uma vaga livre ABAIXO do valor de partida sempre que todo
+    valor acima estivesse ocupado — por exemplo, partindo de 10 com 4..20 todos ocupados e
+    3 livre, a versão anterior nunca chegava a 3. ``ATRASO_MAXIMO_PLAUSIVEL`` distâncias
+    bastam para visitar todo valor entre 0 e ``ATRASO_MAXIMO_PLAUSIVEL``: a maior distância
+    entre qualquer valor de partida e a borda mais longe dele nunca excede
+    ``ATRASO_MAXIMO_PLAUSIVEL``.
     """
     colunas = list(FEATURES)
     if not set(colunas).issubset(frame.columns):
@@ -194,15 +205,19 @@ def _desfazer_colisoes_de_atraso(frame: pd.DataFrame, *, indices: np.ndarray) ->
     for indice in indices:
         if not duplicadas.iloc[indice]:
             continue
-        # ATRASO_MAXIMO_PLAUSIVEL tentativas esgotam toda a faixa plausível (0 a
-        # ATRASO_MAXIMO_PLAUSIVEL) a partir de qualquer valor inicial, nas duas direções.
-        tentativas = 0
-        while duplicadas.iloc[indice] and tentativas <= ATRASO_MAXIMO_PLAUSIVEL:
-            passo = -1 if valores[indice] >= ATRASO_MAXIMO_PLAUSIVEL else 1
-            valores[indice] = int(valores[indice] + passo)
-            resultado[_COLUNA_ATRASO] = valores
-            duplicadas = resultado[colunas].duplicated(keep=False)
-            tentativas += 1
+
+        valor_original = int(valores[indice])
+        distancia = 1
+        while duplicadas.iloc[indice] and distancia <= ATRASO_MAXIMO_PLAUSIVEL:
+            for candidato in (valor_original + distancia, valor_original - distancia):
+                if not duplicadas.iloc[indice]:
+                    break
+                if not (0 <= candidato <= ATRASO_MAXIMO_PLAUSIVEL):
+                    continue
+                valores[indice] = candidato
+                resultado[_COLUNA_ATRASO] = valores
+                duplicadas = resultado[colunas].duplicated(keep=False)
+            distancia += 1
 
     return resultado
 
