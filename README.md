@@ -657,7 +657,7 @@ coisa.
 Medido na partição de teste, cinco das dez features colapsam e roteiam para binning por
 valor:
 
-| Feature | Valores distintos | Bins de quantil efetivos (de 10 pedidos) |
+| Feature | Valores distintos na partição | Bins de quantil efetivos (de 10 pedidos) |
 |---|---:|---:|
 | `NumberOfTimes90DaysLate` | 13 | 1 |
 | `NumberOfTime60-89DaysPastDueNotWorse` | 7 | 1 |
@@ -667,6 +667,9 @@ valor:
 
 As outras cinco (`age`, `DebtRatio`, `MonthlyIncome`, `NumberOfOpenCreditLinesAndLoans`,
 `RevolvingUtilizationOfUnsecuredLines`) recebem os 10 cortes pedidos e seguem por quantil.
+As contagens acima são da partição de teste, que é o lado de referência do detector; sobre
+a Referência inteira elas são maiores (`NumberOfTime30-59DaysPastDueNotWorse` tem 14
+valores distintos ali, por exemplo), e o roteamento não muda.
 
 ### O limiar de 0,10 contra a nula medida
 
@@ -740,7 +743,7 @@ A razão da diferença é medível também. O KS de duas amostras com muitos emp
 **conservador**: os p-valores sob a nula não são uniformes, são deslocados para cima. Em
 1.000 pares disjuntos (semente 7), a taxa de rejeição sob a nula, por feature:
 
-| Feature | Valores distintos | Taxa de rejeição a α = 0,05 | p-valor médio |
+| Feature | Valores distintos na Referência | Taxa de rejeição a α = 0,05 | p-valor médio |
 |---|---:|---:|---:|
 | `RevolvingUtilizationOfUnsecuredLines` | 101.384 | 0,056 | 0,488 |
 | `DebtRatio` | 107.998 | 0,041 | 0,505 |
@@ -829,13 +832,19 @@ da referência e **99,65%** do mês 6 caem no primeiro bin. Uma inflação de 40
 `credito.drift.statistics.psi` usa bins de **quantil** calculados sobre a referência, o que
 dá a cada decil da população o mesmo peso e torna o deslocamento visível: 0,2634.
 
-Isso não é um defeito do Evidently — é o comportamento documentado da sua função de binning
-— e não é motivo para removê-lo: ele produz o relatório visual, e os dois números chegam ao
-mesmo veredito em `DebtRatio` e em `NumberOfTime30-59DaysPastDueNotWorse`. É a razão de
-`drift/statistics.py` existir ao lado dele: **o número que o gate consome é o que um humano
-pode conferir corte a corte**, e num caso medido de cauda longa os dois discordam em três
-bandas de severidade. Uma camada de monitoramento que confiasse apenas no HTML teria
-concluído, no mês 6, que não havia drift de dataset.
+Detalhe que ajuda a explicar por que isso passa despercebido: a própria função de binning do
+Evidently descreve seu comportamento como *"split variable into n buckets based on reference
+quantiles"*. Essa descrição vale para o caminho de baixa cardinalidade; o caminho numérico
+de alta cardinalidade — o que `MonthlyIncome` percorre — é o de largura igual. Quem lê a
+descrição e não o código conclui que está recebendo quantis.
+
+Nada disso é motivo para remover o Evidently: ele produz o relatório visual, e os dois
+números chegam ao mesmo veredito em `DebtRatio` e em
+`NumberOfTime30-59DaysPastDueNotWorse`. É, sim, a razão de `drift/statistics.py` existir ao
+lado dele: **o número que o gate consome é o que um humano pode conferir corte a corte**, e
+num caso medido de cauda longa os dois caem em extremos opostos da escala de três bandas.
+Uma camada de monitoramento que confiasse apenas no HTML teria concluído, no mês 6, que não
+havia drift de dataset.
 
 ### O veredicto consolidado
 

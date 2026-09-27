@@ -37,10 +37,13 @@ sobre o intervalo combinado de referência e atual — e ``MonthlyIncome`` tem m
 máximo 699.530, uma cauda que joga 99,80% da referência e 99,65% do lote dentro do primeiro
 bin de 57.608 de largura. A inflação de 40% da renda move 0,15 ponto percentual de massa
 entre bins, e o PSI sai perto de zero. É a mesma armadilha que ``drift/statistics.py``
-documenta ao escolher binning por quantil, observada aqui de fora.
+documenta ao escolher binning por quantil, observada aqui de fora. Vale notar que a
+docstring da própria ``get_binned_data`` descreve a função como "split variable into n
+buckets based on reference quantiles" — descrição que vale para o caminho de baixa
+cardinalidade, não para o numérico de alta cardinalidade que ``MonthlyIncome`` percorre.
 
-Isso não é defeito do Evidently — é o comportamento documentado da função de binning dele —
-e não é motivo para removê-lo: ele produz o relatório visual, e os dois concordam em
+Isso não é defeito do Evidently, e não é motivo para removê-lo: ele produz o relatório
+visual, e os dois concordam em
 veredito nas outras duas variáveis deslocadas. É, sim, a razão de o gate consumir o número
 próprio: em variável de cauda longa, o número que um humano pode conferir corte a corte e o
 número da biblioteca discordam em banda, não em casa decimal.
