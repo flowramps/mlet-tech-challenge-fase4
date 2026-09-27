@@ -120,10 +120,10 @@ def test_reamostragem_usa_o_psi_do_modulo_de_estatisticas(monkeypatch):
     # pedidos — não uma cópia local da lógica de corte.
     import credito.drift.calibration as calibracao
 
-    chamadas: list[tuple[int, int, int]] = []
+    chamadas: list[tuple[np.ndarray, int, int]] = []
 
     def _psi_espiao(referencia, atual, *, bins):
-        chamadas.append((len(referencia), len(atual), bins))
+        chamadas.append((np.asarray(referencia).copy(), len(atual), bins))
         return 0.0
 
     monkeypatch.setattr(calibracao, "psi", _psi_espiao)
@@ -134,13 +134,16 @@ def test_reamostragem_usa_o_psi_do_modulo_de_estatisticas(monkeypatch):
     resultado = distribuicao_nula_psi(serie, n_amostras=7, tamanho_lote=100, bins=8, seed=SEED)
 
     assert len(chamadas) == 7
-    # `referencia` é sempre a série inteira (1000), nunca reamostrada; `atual` é sempre
-    # do tamanho de lote pedido (100); `bins` é sempre o pedido (8), não um valor
-    # hardcoded — os três são o que prova que a chamada delega em vez de reimplementar.
-    assert all(
-        tamanho_referencia == 1_000 and tamanho_atual == 100 and bins_usado == 8
-        for tamanho_referencia, tamanho_atual, bins_usado in chamadas
-    )
+    # `referencia` é a série inteira POR IDENTIDADE DE CONTEÚDO, não só por tamanho: uma
+    # asserção sobre `len(referencia) == 1_000` passa de pé com um bootstrap da própria
+    # série (`gerador.choice(serie, size=len(serie), replace=True)`), que tem o mesmo
+    # tamanho e não é a série — e é exatamente a assimetria que esta nula existe para
+    # calibrar. `atual` é sempre do tamanho de lote pedido (100) e `bins` é sempre o pedido
+    # (8), não um valor hardcoded.
+    for referencia_recebida, tamanho_atual, bins_usado in chamadas:
+        assert np.array_equal(referencia_recebida, serie)
+        assert tamanho_atual == 100
+        assert bins_usado == 8
     assert np.all(resultado == 0.0)
 
 
@@ -233,6 +236,34 @@ def test_bh_rejeita_ao_menos_tantos_quanto_bonferroni():
 
         assert bh.sum() >= bonferroni.sum()
         assert np.all(bh[bonferroni])  # todo rejeitado por Bonferroni também é por BH
+
+
+def test_bh_rejeita_estritamente_mais_que_bonferroni_no_caso_que_os_separa():
+    """O teste que DISTINGUE Benjamini-Hochberg de Bonferroni — a propriedade que o
+    README defende e a razão de esta função existir.
+
+    O teste acima (`test_bh_rejeita_ao_menos_tantos_quanto_bonferroni`) é uma inclusão
+    (`>=` e `bh ⊇ bonferroni`): ela vale com IGUALDADE se a função for trocada por
+    `return p <= alfa / m`, e por isso não consegue falhar pela propriedade que afirma.
+    Verificado por mutação: substituindo o corpo inteiro de `benjamini_hochberg` por
+    Bonferroni, os 52 testes de `test_calibration.py` + `test_gate.py` continuavam verdes.
+
+    Esta família separa os dois métodos sem ambiguidade. Com m=5 e alfa=0,05, o limiar de
+    Bonferroni é 0,05/5 = 0,01 e só o menor p-valor passa. Os limiares por rank de BH são
+    0,01 / 0,02 / 0,03 / 0,04 / 0,05: os três menores p-valores caem exatamente no limiar
+    do próprio rank, o rank 3 é o maior elegível e o p-valor de corte vira 0,03 — três
+    rejeições contra uma.
+    """
+    p_valores = np.array([0.01, 0.02, 0.03, 0.9, 0.9])
+    alfa = 0.05
+    m = len(p_valores)
+
+    bh = benjamini_hochberg(p_valores, alfa=alfa)
+    bonferroni = p_valores <= (alfa / m)
+
+    assert bonferroni.sum() == 1
+    assert bh.sum() == 3
+    np.testing.assert_array_equal(bh, np.array([True, True, True, False, False]))
 
 
 def test_ordem_de_entrada_nao_importa():
