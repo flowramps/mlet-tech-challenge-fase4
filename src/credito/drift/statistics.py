@@ -29,22 +29,30 @@ colapsam os 10 cortes de quantil pedidos a 1-4 cortes efetivos (`np.unique` depo
 acima) preservam os 10 cortes pedidos sem colapso.
 
 Cardinalidade separa essas dez features corretamente, mas é uma *proxy*, não a causa: o
-mecanismo real é concentração de massa, não contagem de valores distintos. A prova de que
-a proxy quebra já mora no próprio projeto: `DebtRatio` tem 107.998 valores distintos — bem
-acima de qualquer limiar de cardinalidade razoável — e o simulador de Produção da Etapa 2
+mecanismo real é concentração de massa, não contagem de valores distintos. `DebtRatio` tem
+a forma que derrotaria um roteador por cardinalidade: 107.998 valores distintos — bem
+acima de qualquer limiar razoável — e o simulador de Produção da Etapa 2
 (`credito.data.simulate.aplicar_drift_de_divida`) o satura (clip) em 10,0, criando uma
-massa pontual que a Referência não tem. Alta cardinalidade, massa concentrada: é
-exatamente o par que faz uma cardinalidade única errar, cardinalidade alta demais para
-qualquer limiar de "poucos valores" mas concentrada o bastante para colapsar cortes de
-quantil do mesmo jeito que a variável de atraso colapsa.
+massa pontual que a Referência não tem. No footprint atual do clip, porém, essa massa
+ainda não é concentrada o bastante para colapsar cortes de quantil de verdade: medido no
+dado real, o teto exato toca 9 das 117.917 linhas da Referência e cerca de 200 linhas de
+Produção — perto de 0,17%, muito abaixo da concentração que uma coincidência de decil
+pede (perto de 1/bins, ~10% para bins=10). Rodar `bins_por_quantil` sobre o `DebtRatio`
+real devolve os 10 cortes pedidos, sem colapso nenhum (verificado: `psi()` e um cálculo
+forçado por quantil batem bit a bit, 0,504839). É o mesmo par — alta cardinalidade, massa
+concentrada — que faria uma cardinalidade única errar *se* a concentração real chegasse
+lá; o teste sintético
+`test_alta_cardinalidade_com_massa_concentrada_dispara_o_binning_por_valor` escala esse
+mesmo padrão até o ponto em que ele de fato colapsa, sem depender do dado real ter
+chegado tão longe.
 
 Por isso `psi()` não decide a estratégia de binning pela cardinalidade da Referência — ela
 mede o colapso diretamente: calcula `bins_por_quantil(referencia, bins=bins)` e verifica
 se o número de bins que sobrou depois da deduplicação (`np.unique`) é menor que o número
-pedido. Um cardinalidade recebe algum sinal, mas o próprio ato de pedir `bins` cortes e
-não recebê-los de volta *é* a medição de que massa demais se concentra em menos pontos do
-que os quantis pedidos — não uma extrapolação da cardinalidade para outras variáveis que
-ninguém mediu.
+pedido. A cardinalidade carrega algum sinal disso, mas o próprio ato de pedir `bins`
+cortes e não recebê-los de volta *é* a medição de que massa demais se concentra em menos
+pontos do que os quantis pedidos — não uma extrapolação da cardinalidade para outras
+variáveis que ninguém mediu.
 
 Para `NumberOfTime30-59DaysPastDueNotWorse` especificamente: entre o mês 0 e o mês 6 do
 simulador de Produção da Etapa 2 (`credito.data.simulate.simular_producao`, seed=42,
@@ -92,15 +100,16 @@ def bins_por_quantil(referencia: np.ndarray, *, bins: int) -> np.ndarray:
     pequeno para qualquer deslocamento, porque bins deslizantes absorvem o próprio
     deslocamento que deveriam medir.
 
-    Quando a massa da Referência se concentra (ex.: 90% de zeros, ou os 10,0 exatos que
-    o clip de ``DebtRatio`` produz), vários quantis coincidem e ``np.quantile`` devolve
-    cortes repetidos — que fariam ``np.histogram`` recusar o array por não ser
-    estritamente crescente. ``np.unique`` deduplica; ``psi`` usa o tamanho do resultado
-    para decidir se essa concentração é forte o bastante para trocar de estratégia (ver
-    ``psi``). Os dois extremos são abertos (±inf) para que um valor de Produção fora do
-    intervalo observado na Referência caia no bin extremo em vez de ser descartado do
-    histograma sem contagem — o que inflaria falsamente o PSI ao fazer a proporção da
-    atual não somar 1.
+    Quando a massa da Referência se concentra o bastante (ex.: 90% de zeros, ou um clip
+    de contrato que sature massa suficiente no mesmo teto — ver o docstring do módulo
+    sobre por que o clip de ``DebtRatio`` no dado real de hoje ainda não chega lá),
+    vários quantis coincidem e ``np.quantile`` devolve cortes repetidos — que fariam
+    ``np.histogram`` recusar o array por não ser estritamente crescente. ``np.unique``
+    deduplica; ``psi`` usa o tamanho do resultado para decidir se essa concentração é
+    forte o bastante para trocar de estratégia (ver ``psi``). Os dois extremos são
+    abertos (±inf) para que um valor de Produção fora do intervalo observado na
+    Referência caia no bin extremo em vez de ser descartado do histograma sem contagem —
+    o que inflaria falsamente o PSI ao fazer a proporção da atual não somar 1.
     """
     referencia = np.asarray(referencia, dtype=float)
     cortes = np.unique(np.quantile(referencia, np.linspace(0.0, 1.0, bins + 1)))
@@ -164,11 +173,13 @@ def psi(
 
     A estratégia de binning é escolhida medindo se o binning por quantil colapsa, não
     pela cardinalidade da Referência — cardinalidade é uma *proxy* que a variável de
-    atraso e a de dívida deste projeto já provam que engana: a segunda tem mais de cem
-    mil valores distintos e ainda assim colapsa quando o clip de contrato concentra
-    massa num único ponto (ver o docstring do módulo). Colapso é definido de forma
-    estrita: se ``bins_por_quantil(referencia, bins=bins)`` devolve **menos** cortes do
-    que os ``bins`` pedidos — nem um a menos é tolerado —, ao menos um corte de quantil
+    atraso já prova que engana, e que a de dívida (``DebtRatio``) tem a forma para
+    enganar também: mais de cem mil valores distintos, mas sob concentração de massa
+    suficiente (o clip de contrato que a satura em 10,0 — pequeno demais no dado real de
+    hoje para colapsar cortes, ver o docstring do módulo) colapsaria do mesmo jeito.
+    Colapso é definido de forma estrita: se ``bins_por_quantil(referencia, bins=bins)``
+    devolve **menos** cortes do que os ``bins`` pedidos — nem um a menos é tolerado —,
+    ao menos um corte de quantil
     coincidiu com o vizinho, o que só acontece quando massa concentrada demais para o
     número de bins pedido. Uma regra por fração (só trocar se metade dos cortes
     colapsar, por exemplo) toleraria perder resolução justamente na região concentrada

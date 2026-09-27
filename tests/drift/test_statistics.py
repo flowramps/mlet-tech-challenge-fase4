@@ -1,18 +1,20 @@
 """PSI e KS precisam ser conferíveis na mão — por isso são medidos aqui contra
-distribuições sintéticas simples, nunca contra o arquivo do dataset. Dois testas centrais
+distribuições sintéticas simples, nunca contra o arquivo do dataset. Dois testes centrais
 desta suíte reproduzem a mesma descoberta em duas formas diferentes que ela assume:
 
 - `test_variavel_discreta_zero_inflada_dispara_o_binning_por_valor`: réplica de
   `NumberOfTime30-59DaysPastDueNotWorse` (14 valores distintos, 83,1% de zeros na
   Referência real, subindo para 70,9% na Produção simulada da Etapa 2 com a média mais
-  que dobrando). Baixa cardinalidade *e* concentrada.
-- `test_alta_cardinalidade_com_massa_concentrada_dispara_o_binning_por_valor`: réplica de
-  `DebtRatio` (107.998 valores distintos na Referência real) sob o clip de contrato que o
-  simulador de Produção da Etapa 2 aplica (`aplicar_drift_de_divida`), que cria uma massa
-  pontual em 10,0 que a Referência não tem. Alta cardinalidade *e* concentrada — a prova
-  de que cardinalidade sozinha não seria um roteador seguro: esta variável teria mais
-  valores distintos que qualquer limiar razoável e ainda assim colapsa os cortes de
-  quantil pedidos.
+  que dobrando). Baixa cardinalidade *e* concentrada — colapsa no dado real de hoje.
+- `test_alta_cardinalidade_com_massa_concentrada_dispara_o_binning_por_valor`: réplica da
+  *forma* de `DebtRatio` (107.998 valores distintos na Referência real) sob o clip de
+  contrato que o simulador de Produção da Etapa 2 aplica (`aplicar_drift_de_divida`), que
+  cria uma massa pontual em 10,0 que a Referência não tem. No dado real de hoje esse clip
+  toca só ~0,17% das linhas — pouco demais para colapsar cortes de quantil (verificado:
+  `DebtRatio` real preserva os 10 cortes pedidos). A réplica sintética escala essa mesma
+  forma (alta cardinalidade *e* concentrada) até a concentração em que ela de fato
+  colapsa, provando que cardinalidade sozinha não seria um roteador seguro *se* o clip
+  real chegasse lá.
 
 Em ambos os casos, sob binning por quantil (o padrão ingênuo) o deslocamento mede PSI
 abaixo de 0,10 ("estável" pela convenção do setor); sob binning por valor (um bin por
@@ -224,17 +226,24 @@ def test_alta_cardinalidade_com_massa_concentrada_dispara_o_binning_por_valor():
     """A outra forma da mesma descoberta: o contraexemplo que a cardinalidade sozinha
     não veria.
 
-    Réplica da forma de `DebtRatio` sob o clip de contrato que o simulador de Produção
+    Réplica da *forma* de `DebtRatio` sob o clip de contrato que o simulador de Produção
     da Etapa 2 aplica (`aplicar_drift_de_divida`, que satura o resultado em
-    `DEBT_RATIO_MAXIMO`): uma variável **contínua** (aqui, ~17.600 valores distintos —
-    bem acima de qualquer limiar de cardinalidade que se pudesse escolher) com uma massa
-    pontual que cresce de 12% na Referência para 22% na atual. Um roteador que decidisse
-    pela cardinalidade da Referência mandaria isto para `bins_por_quantil` sem pestanejar
-    — e o PSI sairia abaixo de 0,10 mesmo a massa concentrada mais que dobrando de
-    tamanho, porque 12% de massa num único ponto já é o bastante para colapsar um dos 10
-    cortes de quantil pedidos (medido: `bins_por_quantil` devolve 9, não 10). Rotear pelo
-    colapso medido, não pela cardinalidade, pega o mesmo padrão aqui que pegou na
-    variável discreta.
+    `DEBT_RATIO_MAXIMO`) — não do estado atual dessa variável no dado real, onde o clip
+    toca só ~0,17% das linhas e não chega a colapsar nada (ver o docstring do módulo
+    `credito.drift.statistics`). Esta réplica é uma variável **contínua** (aqui, ~17.600
+    valores distintos — bem acima de qualquer limiar de cardinalidade que se pudesse
+    escolher) com uma massa pontual que cresce de 12% na Referência para 22% na atual.
+    Um roteador que decidisse pela cardinalidade da Referência mandaria isto para
+    `bins_por_quantil` sem pestanejar — e o PSI sairia abaixo de 0,10 mesmo a massa
+    concentrada mais que dobrando de tamanho, porque 12% de massa num único ponto já é o
+    bastante para colapsar um dos 10 cortes de quantil pedidos (medido:
+    `bins_por_quantil` devolve 9, não 10). A razão estrutural: uma massa pontual só
+    duplica um corte de quantil quando ela é grande o bastante para cobrir dois ou mais
+    dos pontos pedidos (`np.linspace(0, 1, bins + 1)`) ao mesmo tempo, o que pede perto
+    de `1/bins` da massa — 10% para `bins=10` — não um número escolhido à mão; a margem
+    de 12% acima desse limite estrutural é o que garante o colapso sem depender de sorte
+    de amostragem. Rotear pelo colapso medido, não pela cardinalidade, pega o mesmo
+    padrão aqui que pegou na variável discreta.
     """
     gerador = np.random.default_rng(SEED)
 
