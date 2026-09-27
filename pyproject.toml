@@ -61,4 +61,33 @@ pythonpath = ["src"]
 addopts = "-ra --strict-markers"
 # Filtro de warning é preciso e datado: filtrar a categoria inteira esconde problema.
 # Cada entrada diz a causa e quando pode sair.
-filterwarnings = []
+#
+# O primeiro elemento ("error") é o próprio "-W error" do projeto, escrito aqui em vez de
+# em "-W" na linha de comando: o pytest aplica os filtros do `filterwarnings` do ini ANTES
+# dos de "-W" (`_pytest.config.apply_warning_filters` comenta a ordem: "Filters should be
+# applied in the inverse order of precedence" — cmdline por último, logo na frente da
+# lista, logo checado primeiro). Um "-W error" na linha de comando por cima deste arquivo
+# sempre vence e ignora as duas entradas abaixo — verificado rodando
+# `pytest -W error -q` com estas mesmas entradas presentes: a suíte falha do mesmo jeito,
+# porque o "-W error" da linha de comando não tem categoria/mensagem, casa com qualquer
+# warning e é checado antes de qualquer entrada deste arquivo. Por isso o comando que de
+# fato exercita esta configuração é `pytest` puro (sem `-W`), não `pytest -W error`.
+filterwarnings = [
+    "error",
+    # 2026-09-27: `evidently==0.7.23` (pino do próprio pyproject) importa, na cadeia de
+    # `from evidently import ...`, o módulo `evidently.legacy.tests.utils`, que ainda
+    # escreve em `numpy.core` — renomeado para `numpy._core` desde o NumPy 2.0. Terceiro,
+    # não nosso: medido reproduzindo o import isolado (`import evidently` sob
+    # `warnings.simplefilter("error", DeprecationWarning)`), o traceback termina dentro
+    # do pacote do Evidently, não deste projeto. Sai quando o Evidently corrigir o
+    # próprio import ou quando este projeto trocar de biblioteca de drift.
+    "ignore:numpy\\.core is deprecated and has been renamed to numpy\\._core:DeprecationWarning",
+    # 2026-09-27: o mesmo import de `evidently` carrega, de forma ansiosa (mesmo sem este
+    # projeto usar a UI do Evidently), `evidently.legacy.ui.managers.projects`, que ainda
+    # chama a API antiga do litestar (`Dependency`/`DependencyKwarg`), depreciada na
+    # litestar 2.23 com remoção anunciada para a 3.0. Mesma medição do item acima: o
+    # traceback termina dentro do Evidently. Saem quando o Evidently migrar para
+    # `litestar.di.NamedDependency` ou quando este projeto trocar de biblioteca de drift.
+    "ignore:Call to deprecated function 'Dependency'\\.:DeprecationWarning",
+    "ignore:Use of deprecated class 'DependencyKwarg'\\.:DeprecationWarning",
+]
