@@ -57,9 +57,14 @@ _FRACAO_MAXIMA_ATRASO = 0.15
 # inflação maior que 1 empurraria essas linhas para fora do contrato em qualquer amostra
 # que as inclua, então o coeficiente sozinho não basta: `aplicar_drift_de_divida` também
 # limita (clip) o resultado ao próprio teto do contrato — não a um teto novo, o mesmo que
-# a Referência já respeita. Medido sobre a Referência inteira com este coeficiente: só 95
-# das 117.917 linhas (0,08%) precisam do clip: a imensa maioria do lote recebe a inflação
-# de 80% inteira, sem distorção perceptível na distribuição.
+# a Referência já respeita. Medido sobre a Referência inteira com este coeficiente
+# (`(ref.DebtRatio > DEBT_RATIO_MAXIMO / 1.8).sum()`): 200 das 117.917 linhas (0,17%)
+# precisam do clip — a imensa maioria do lote recebe a inflação de 80% inteira, sem
+# distorção perceptível na distribuição (o PSI do mês 6 é o mesmo com ou sem o clip,
+# porque o bin de topo do PSI por quantil é aberto). O clip, no entanto, cria um empate
+# exato em 10,0 que a Referência real não tem nessa proporção — um artefato distribucional
+# à parte da inflação legítima, inofensivo sob binning por quantil mas visível em qualquer
+# diagnóstico de valores distintos ou de forma de cauda.
 _COEFICIENTE_DIVIDA = 0.80
 
 # Padronização de DebtRatio usada em `aplicar_concept_drift`: média e desvio medidos na
