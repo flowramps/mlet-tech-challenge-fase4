@@ -8,8 +8,10 @@ devolve e o PSI de ``credito.drift.statistics.psi`` **não batem em valor** — 
 docstring de ``credito.drift.evidently_backend`` sobre o mecanismo. O que os testes abaixo
 comparam é o veredicto (``Severidade``) nos dois extremos inequívocos: dados idênticos (os
 dois têm que dizer ESTAVEL) e deslocamento de 20 unidades numa variável cujo suporte real
-é ``[0, 1]`` (os dois têm que dizer CRITICO). A zona cinzenta entre 0,10 e 0,25 de PSI é
-onde as duas implementações podem divergir, e nenhum teste aqui pisa nela.
+é ``[0, 1]`` (os dois têm que dizer CRITICO). Fora desses dois extremos as duas
+implementações podem divergir até em banda de severidade — o docstring do módulo de
+produção traz o caso medido, em variável de cauda longa —, e nenhum teste aqui pisa nessa
+faixa.
 
 Nenhum teste toca rede: o fixture ``_bloqueia_rede`` troca ``socket.socket.connect`` por
 uma função que derruba o teste — se o Evidently (ou a telemetria opcional que ele carrega,

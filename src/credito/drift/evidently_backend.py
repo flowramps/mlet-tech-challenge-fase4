@@ -21,10 +21,29 @@ para comparação. Exigir que os dois números coincidam seria testar um acident
 implementação, não uma propriedade real — o que os testes deste módulo exigem em vez disso
 é que os dois cheguem à mesma ``Severidade`` nos casos inequívocos (dados idênticos:
 ESTAVEL nos dois; deslocamento de várias ordens de grandeza fora do suporte observado:
-CRITICO nos dois). Entre 0,10 e 0,25 de PSI as duas implementações podem divergir — cada
-uma faz um binning diferente da mesma massa deslocada — e essa zona cinzenta não é coberta
-por nenhuma asserção de igualdade aqui, porque seria uma asserção que mente sobre o que a
-matemática garante.
+CRITICO nos dois). Nenhuma asserção de igualdade de valor existe aqui, porque seria uma
+asserção que mente sobre o que a matemática garante.
+
+**E a divergência não fica confinada a uma zona cinzenta perto dos limiares.** Medido no
+mês 6 da simulação de Produção sobre a partição de teste real (23.584 linhas): em
+``DebtRatio`` os dois valores são próximos (0,5046 próprio contra 0,4226 do Evidently) e em
+``NumberOfTime30-59DaysPastDueNotWorse`` são idênticos (0,1442), mas em ``MonthlyIncome``
+saem 0,2634 contra 0,0120 — CRITICO de um lado, ESTAVEL do outro, três bandas de distância.
+O mecanismo foi reproduzido, não suposto: recalculando o PSI fora da biblioteca com a regra
+de ``evidently.legacy.calculations.stattests.utils.get_binned_data``, os três valores saem
+iguais aos que o relatório publica, até o último dígito. Essa regra usa, para coluna
+numérica com mais de 20 valores distintos, bins de LARGURA IGUAL pela fórmula de Sturges
+sobre o intervalo combinado de referência e atual — e ``MonthlyIncome`` tem mediana 5.416 e
+máximo 699.530, uma cauda que joga 99,80% da referência e 99,65% do lote dentro do primeiro
+bin de 57.608 de largura. A inflação de 40% da renda move 0,15 ponto percentual de massa
+entre bins, e o PSI sai perto de zero. É a mesma armadilha que ``drift/statistics.py``
+documenta ao escolher binning por quantil, observada aqui de fora.
+
+Isso não é defeito do Evidently — é o comportamento documentado da função de binning dele —
+e não é motivo para removê-lo: ele produz o relatório visual, e os dois concordam em
+veredito nas outras duas variáveis deslocadas. É, sim, a razão de o gate consumir o número
+próprio: em variável de cauda longa, o número que um humano pode conferir corte a corte e o
+número da biblioteca discordam em banda, não em casa decimal.
 """
 
 from __future__ import annotations
