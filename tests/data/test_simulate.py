@@ -297,6 +297,61 @@ def test_intensidade_e_monotonica(amostra):
     assert medianas[-1] > medianas[0] * 1.3
 
 
+def _quase_gemeos(n_pares: int, *, seed: int) -> pd.DataFrame:
+    """``n_pares`` pares de linhas idênticas em ``FEATURES`` exceto na coluna de atraso, que
+    difere entre as duas linhas do par por um valor entre 1 e 3 — a mesma faixa que
+    ``aplicar_drift_de_atraso`` sorteia como incremento. Nenhum par colide antes da injeção
+    (a diferença nunca é zero); em escala, a chance de o incremento sorteado fechar
+    exatamente essa diferença para ao menos um par deixa de ser desprezível — é o mecanismo
+    medido na Referência real (117.917 linhas), reproduzido aqui numa fixture pequena o
+    bastante para rodar na suíte sem tocar o arquivo do dataset.
+    """
+    gerador = np.random.default_rng(seed)
+    n = n_pares * 2
+    base_atraso = gerador.integers(0, 5, n_pares)
+    diferenca = gerador.integers(1, 4, n_pares)
+    atraso = np.empty(n, dtype=int)
+    atraso[0::2] = base_atraso
+    atraso[1::2] = base_atraso + diferenca
+
+    frame = pd.DataFrame(
+        {
+            "RevolvingUtilizationOfUnsecuredLines": np.repeat(
+                gerador.uniform(0.01, 1.0, n_pares), 2
+            ),
+            "age": np.repeat(gerador.integers(18, 90, n_pares), 2),
+            "NumberOfTime30-59DaysPastDueNotWorse": atraso,
+            "DebtRatio": np.repeat(gerador.uniform(0.01, 5.0, n_pares), 2),
+            "MonthlyIncome": np.repeat(gerador.uniform(1000.0, 20000.0, n_pares), 2),
+            "NumberOfOpenCreditLinesAndLoans": np.repeat(gerador.integers(1, 20, n_pares), 2),
+            "NumberOfTimes90DaysLate": np.zeros(n, dtype=int),
+            "NumberRealEstateLoansOrLines": np.repeat(gerador.integers(0, 4, n_pares), 2),
+            "NumberOfTime60-89DaysPastDueNotWorse": np.zeros(n, dtype=int),
+            "NumberOfDependents": np.repeat(gerador.integers(0, 5, n_pares), 2).astype(float),
+        }
+    )
+    return frame[list(FEATURES)]
+
+
+def test_aplicar_drift_de_atraso_nao_cria_duplicata_exata_por_colisao_de_quase_gemeos():
+    """Regressão: reproduzido contra a Referência real (117.917 linhas), o lote ``mes_02``
+    da simulação continha uma linha colidindo com sua quase-gêmea depois da injeção de
+    atraso — o contrato reprovava o lote inteiro, e um lote reprovado nunca chega ao
+    detector de drift (bloquearia a Tarefa 7 inteira). A fixture de 100 pares (200 linhas)
+    não tem nenhuma duplicata antes da injeção; sem a correção em
+    ``_desfazer_colisoes_de_atraso``, este teste falha de forma determinística com este
+    seed — a chance de zero colisões em 100 pares independentes, cada um com 1/3 de chance
+    de o incremento sorteado fechar a diferença, é desprezível.
+    """
+    frame = _quase_gemeos(100, seed=1)
+    assert not frame.duplicated().any()
+
+    resultado = aplicar_drift_de_atraso(frame, 1.0, seed=42)
+
+    assert resultado.duplicated().sum() == 0
+    assert construir_validador().validar(resultado).valido
+
+
 def test_todo_lote_passa_no_contrato(amostra):
     """Drift não é invalidez. Se um lote for reprovado, o detector nunca o vê."""
     validador = construir_validador()

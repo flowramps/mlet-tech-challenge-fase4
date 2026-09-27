@@ -158,6 +158,55 @@ def aplicar_drift_de_divida(frame: pd.DataFrame, intensidade: float) -> pd.DataF
     return resultado
 
 
+def _desfazer_colisoes_de_atraso(frame: pd.DataFrame, *, indices: np.ndarray) -> pd.DataFrame:
+    """Desfaz uma duplicata exata sobre ``FEATURES`` que a própria injeção acabou de criar.
+
+    Na Referência real (117.917 linhas), duas linhas podem já ser quase gêmeas — idênticas
+    em toda ``FEATURES`` exceto nesta coluna — e o incremento sorteado por
+    ``aplicar_drift_de_atraso`` fecha exatamente essa diferença, produzindo uma duplicata
+    exata que o contrato de ingestão rejeita (regra ``sem_duplicatas``). Medido: reproduz em
+    ``mes_02`` da simulação sobre a Referência real, numa única linha — sample-dependente
+    (não aparece na partição de teste, 23.584 linhas), mas presente na Referência inteira. Um
+    lote reprovado nunca chega ao detector de drift, o que anularia o argumento central da
+    fase (ver o docstring do módulo).
+
+    A checagem só roda quando ``FEATURES`` está inteira presente no frame — uma chamada com
+    um subconjunto de colunas, como os testes de unidade deste módulo fazem, não carrega
+    informação suficiente para decidir "duplicata real de uma linha inteira", e aplicar a
+    checagem ali reprovaria fixtures de uma única coluna que nunca pretenderam representar
+    uma linha inteira.
+
+    Só as linhas que a própria injeção tocou (``indices``) são candidatas a mover — uma
+    colisão que envolvesse uma linha que a injeção não tocou seria um defeito em outro
+    lugar do pipeline, não algo que este mecanismo deveria mascarar. Mover significa
+    caminhar a MESMA linha para o próximo valor de atraso ainda dentro do teto de
+    plausibilidade (``ATRASO_MAXIMO_PLAUSIVEL``) até a duplicata desaparecer — nunca
+    inventar um valor fora do que a própria injeção já poderia ter sorteado.
+    """
+    colunas = list(FEATURES)
+    if not set(colunas).issubset(frame.columns):
+        return frame
+
+    resultado = frame.copy()
+    valores = resultado[_COLUNA_ATRASO].to_numpy().copy()
+    duplicadas = resultado[colunas].duplicated(keep=False)
+
+    for indice in indices:
+        if not duplicadas.iloc[indice]:
+            continue
+        # ATRASO_MAXIMO_PLAUSIVEL tentativas esgotam toda a faixa plausível (0 a
+        # ATRASO_MAXIMO_PLAUSIVEL) a partir de qualquer valor inicial, nas duas direções.
+        tentativas = 0
+        while duplicadas.iloc[indice] and tentativas <= ATRASO_MAXIMO_PLAUSIVEL:
+            passo = -1 if valores[indice] >= ATRASO_MAXIMO_PLAUSIVEL else 1
+            valores[indice] = int(valores[indice] + passo)
+            resultado[_COLUNA_ATRASO] = valores
+            duplicadas = resultado[colunas].duplicated(keep=False)
+            tentativas += 1
+
+    return resultado
+
+
 def aplicar_drift_de_atraso(frame: pd.DataFrame, intensidade: float, *, seed: int) -> pd.DataFrame:
     """Injeta um novo perfil de inadimplência em ``0,15 * intensidade`` das linhas.
 
@@ -166,6 +215,10 @@ def aplicar_drift_de_atraso(frame: pd.DataFrame, intensidade: float, *, seed: in
     ingestão já aplica à Referência — o clip aqui é defensivo: no arquivo real, o valor
     máximo desta coluna é 13, longe do teto de 20, mas a amostra recebida por esta função
     não tem essa garantia.
+
+    Depois do clip, ``_desfazer_colisoes_de_atraso`` resolve qualquer duplicata exata sobre
+    ``FEATURES`` que a injeção tenha criado por coincidência — ver o docstring daquela
+    função para a medição que motivou a correção.
     """
     resultado = frame.copy()
     n = len(resultado)
@@ -179,6 +232,7 @@ def aplicar_drift_de_atraso(frame: pd.DataFrame, intensidade: float, *, seed: in
         valores = resultado[_COLUNA_ATRASO].to_numpy().copy()
         valores[indices] = valores[indices] + incremento
         resultado[_COLUNA_ATRASO] = np.clip(valores, 0, ATRASO_MAXIMO_PLAUSIVEL)
+        resultado = _desfazer_colisoes_de_atraso(resultado, indices=indices)
 
     return resultado
 
