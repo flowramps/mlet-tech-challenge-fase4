@@ -14,17 +14,7 @@ import logging
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from credito.schema import (
-    ALVO,
-    ALVO_ORIGINAL,
-    ATRASO_MAXIMO_PLAUSIVEL,
-    COLUNAS_DE_ATRASO,
-    COLUNAS_SEM_REGRA_NOMEADA,
-    DEBT_RATIO_MAXIMO,
-    FEATURES,
-    IDADE_MAXIMA,
-    IDADE_MINIMA,
-)
+from credito import schema
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +24,9 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     motivos: dict[str, int] = {}
     trabalho = frame.copy()
 
-    if ALVO_ORIGINAL in trabalho.columns:
-        trabalho[ALVO] = (trabalho[ALVO_ORIGINAL] == "Yes").astype(int)
-        trabalho = trabalho.drop(columns=[ALVO_ORIGINAL])
+    if schema.ALVO_ORIGINAL in trabalho.columns:
+        trabalho[schema.ALVO] = (trabalho[schema.ALVO_ORIGINAL] == "Yes").astype(int)
+        trabalho = trabalho.drop(columns=[schema.ALVO_ORIGINAL])
 
     # O dedup olha só para FEATURES, não para a linha inteira: o contrato de ingestão
     # nunca vê o alvo, então duas linhas idênticas em FEATURES mas com alvo diferente já
@@ -45,7 +35,7 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # são duas observações — são um conflito de rótulo, que este dedup também resolve
     # (mantendo a primeira ocorrência, na mesma convenção do `Check` do contrato).
     antes = len(trabalho)
-    trabalho = trabalho.drop_duplicates(subset=list(FEATURES))
+    trabalho = trabalho.drop_duplicates(subset=list(schema.FEATURES))
     motivos["duplicata"] = antes - len(trabalho)
 
     def _descartar(mascara: pd.Series, rotulo: str) -> None:
@@ -72,13 +62,13 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     _descartar(~trabalho["MonthlyIncome"].ge(0.0), "renda_nula")
     _descartar(~trabalho["NumberOfDependents"].ge(0.0), "dependentes_nulo")
     _descartar(
-        ~trabalho["age"].between(IDADE_MINIMA, IDADE_MAXIMA),
+        ~trabalho["age"].between(schema.IDADE_MINIMA, schema.IDADE_MAXIMA),
         "idade_invalida",
     )
 
     sentinela = pd.Series(False, index=trabalho.index)
-    for coluna in COLUNAS_DE_ATRASO:
-        sentinela |= ~trabalho[coluna].between(0, ATRASO_MAXIMO_PLAUSIVEL)
+    for coluna in schema.COLUNAS_DE_ATRASO:
+        sentinela |= ~trabalho[coluna].between(0, schema.ATRASO_MAXIMO_PLAUSIVEL)
     _descartar(sentinela, "atraso_sentinela")
 
     # Rede de segurança para quando a renda vem preenchida mas o DebtRatio ainda assim é
@@ -87,7 +77,7 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # contrato de ingestão aplica — a mesma constante importada, não reafirmada — para
     # que limpeza e contrato nunca divirjam sobre o que é uma razão de dívida aceitável.
     _descartar(
-        ~trabalho["DebtRatio"].between(0.0, DEBT_RATIO_MAXIMO),
+        ~trabalho["DebtRatio"].between(0.0, schema.DEBT_RATIO_MAXIMO),
         "razao_divida_implausivel",
     )
 
@@ -97,11 +87,11 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # falem de um defeito só. Mede 0 no arquivo real — nenhuma das três chega nula —, o
     # que é evidência de que o dado está íntegro nessas colunas, não regra sobrando.
     obrigatoria_nula = pd.Series(False, index=trabalho.index)
-    for coluna in COLUNAS_SEM_REGRA_NOMEADA:
+    for coluna in schema.COLUNAS_SEM_REGRA_NOMEADA:
         obrigatoria_nula |= trabalho[coluna].isna()
     _descartar(obrigatoria_nula, "campo_invalido")
 
-    limpo = trabalho[[ALVO, *FEATURES]].reset_index(drop=True)
+    limpo = trabalho[[schema.ALVO, *schema.FEATURES]].reset_index(drop=True)
     logger.info("referência com %d linhas; descartes: %s", len(limpo), motivos)
     return limpo, motivos
 
@@ -119,11 +109,11 @@ def separar(
     da classe rara o bastante para mover a métrica mais que o próprio modelo.
     """
     resto, teste = train_test_split(
-        frame, test_size=test_size, random_state=seed, stratify=frame[ALVO]
+        frame, test_size=test_size, random_state=seed, stratify=frame[schema.ALVO]
     )
     proporcao = validation_size / (1 - test_size)
     treino, validacao = train_test_split(
-        resto, test_size=proporcao, random_state=seed, stratify=resto[ALVO]
+        resto, test_size=proporcao, random_state=seed, stratify=resto[schema.ALVO]
     )
     return {
         "treino": treino.reset_index(drop=True),

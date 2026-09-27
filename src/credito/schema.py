@@ -51,7 +51,7 @@ ATRASO_MAXIMO_PLAUSIVEL = 20
 # A razão dívida/renda plausível: entre os registros com renda declarada, o p95 medido é
 # 1,1. O teto de 10 é uma ordem de grandeza acima disso — generoso o bastante para não
 # reprovar caso atípico legítimo, apertado o bastante para barrar o defeito conhecido.
-# Definida aqui, não em `contracts/rules.py`, porque a limpeza da Referência e o contrato
-# de ingestão precisam da mesma constante — e só há uma direção de import possível entre
-# os dois módulos sem criar um ciclo (rules.py já importa daqui).
+# Vive aqui, não em `contracts/rules.py` nem em `data/prepare.py`, porque é vocabulário, não
+# política: `rules.py` e `prepare.py` a consomem deste único lugar canônico, sem que nenhum
+# dos dois precise importar do outro.
 DEBT_RATIO_MAXIMO = 10.0

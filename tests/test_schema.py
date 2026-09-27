@@ -18,7 +18,7 @@ def test_schema_nao_importa_nada_do_projeto():
     arvore = ast.parse(Path(credito.schema.__file__).read_text(encoding="utf-8"))
     importados = [
         no.module for no in ast.walk(arvore) if isinstance(no, ast.ImportFrom) and no.module
-    ]
+    ] + [alias.name for no in ast.walk(arvore) if isinstance(no, ast.Import) for alias in no.names]
     assert not [m for m in importados if m.startswith("credito")]
 
 
