@@ -90,4 +90,19 @@ filterwarnings = [
     # `litestar.di.NamedDependency` ou quando este projeto trocar de biblioteca de drift.
     "ignore:Call to deprecated function 'Dependency'\\.:DeprecationWarning",
     "ignore:Use of deprecated class 'DependencyKwarg'\\.:DeprecationWarning",
+    # 2026-09-27: `scipy.stats.ks_2samp` tenta o cálculo exato do p-valor por padrão
+    # (`mode="auto"`) e, para certas combinações de tamanho de amostra e estatística D, a
+    # rotina exata (`scipy/stats/_stats_py.py::_attempt_exact_2kssamp`) falha internamente
+    # e cai para o modo assintótico emitindo este aviso — comportamento interno do SciPy,
+    # não um defeito deste projeto: o p-valor entregue nesse caminho já é a aproximação
+    # assintótica padrão, a mesma que `mode="asymp"` pediria explicitamente, então nenhum
+    # resultado fica errado. Reproduzido chamando `credito.drift.statistics.ks` (via a
+    # orquestração de monitoramento, Tarefa 7) sobre duas amostras sintéticas de 400
+    # linhas cada — o traceback termina dentro do SciPy. Sai quando o SciPy parar de
+    # precisar desse fallback ou emitir o aviso de outra forma.
+    # O ":" literal da mensagem original ("ks_2samp: Exact...") quebraria o parser de
+    # `filterwarnings` do pytest, que separa os campos por ":" sem respeitar escape — por
+    # isso o colon vira "\x3a" em regex (o mesmo caractere, sem o literal que confundiria
+    # o parser).
+    "ignore:ks_2samp\\x3a Exact calculation unsuccessful\\. Switching to method=asymp\\.:RuntimeWarning",
 ]
