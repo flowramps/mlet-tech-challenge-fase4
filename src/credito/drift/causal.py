@@ -15,11 +15,34 @@ Cada cenário chama diretamente as transformações públicas de `credito.data.s
 (nunca as reimplementa): `_gerar_lote` compõe as quatro na mesma ordem que
 `simular_producao` usa, ligando (intensidade > 0) só a transformação da variável que o
 cenário isola — as demais entram com intensidade zero, que cada uma já documenta como
-no-op ou identidade. É essa composição idêntica, com as mesmas sementes por mês, que faz o
-cenário "todos" reproduzir bit a bit o lote que `simular_producao` geraria para o mesmo
-mês — condição sem a qual a atribuição mediria um processo gerador diferente do que foi de
-fato simulado, e a análise perderia validade (ver o docstring de `VARIAVEIS_COM_DRIFT` em
-`simulate.py`).
+no-op ou identidade. O cenário "todos" reproduz, linha a linha, o lote que
+`simular_producao` geraria para o mesmo mês — condição sem a qual a atribuição mediria um
+processo gerador diferente do que foi de fato simulado, e a análise perderia validade (ver
+o docstring de `VARIAVEIS_COM_DRIFT` em `simulate.py`).
+
+**Três coisas sustentam essa reprodução, e é por elas que a validade responde:**
+
+- **A janela `meses`**, que fixa a intensidade `k = mes / meses`. Ela é parâmetro aqui
+  justamente porque `simular_producao` também a recebe: se a atribuição lesse a constante
+  `MESES` enquanto a simulação monitorada rodasse com outra janela, o cenário "todos"
+  deixaria de reproduzir o lote monitorado sem nenhum aviso — medido, antes da correção,
+  com `meses=3`: 0,497540 contra 0,492355 de AUC-ROC no mesmo mês.
+- **As sementes por mês** (`seed + 2*mes` para o atraso, `seed + 2*mes + 1` para o concept
+  drift), as mesmas que `simular_producao` deriva. Compartilhar uma única semente entre as
+  duas transformações estocásticas já quebra a reprodução.
+- **A posição de `aplicar_concept_drift`, que precisa vir DEPOIS de
+  `aplicar_drift_de_divida` e de `aplicar_drift_de_atraso`** — e só essa posição é
+  load-bearing na ordem. O segmento que o concept drift inverte
+  (`_regiao_de_risco_emergente`) é definido sobre o `DebtRatio` já inflado e sobre as
+  colunas de atraso já injetadas: ele LÊ o resultado das outras duas. Medido rodando as 24
+  permutações da composição sobre a partição de teste real (23.584 linhas) e sobre a
+  Referência inteira (117.917 linhas), nos seis meses: 16 das 23 permutações não canônicas
+  mudam o lote (de 385 a 3.514 linhas na partição de teste, conforme a permutação e o mês),
+  e as 7 que não mudam nada são exatamente aquelas em que o concept drift continua por
+  último. `aplicar_drift_de_renda` comuta com tudo (só multiplica `MonthlyIncome`, coluna
+  que nenhuma das outras lê, e multiplicar por constante preserva as igualdades entre
+  linhas), e `aplicar_drift_de_divida`/`aplicar_drift_de_atraso` comutam entre si — a ordem
+  relativa dessas três é indiferente, a do concept drift não é.
 """
 
 from __future__ import annotations
@@ -93,7 +116,7 @@ def _gerar_lote(
 
 
 def atribuir_degradacao(
-    referencia: pd.DataFrame, modelo: Any, *, mes: int, seed: int
+    referencia: pd.DataFrame, modelo: Any, *, mes: int, seed: int, meses: int = MESES
 ) -> dict[str, Any]:
     """Decompõe a degradação do campeão em `mes` nos quatro canais de drift que
     `credito.data.simulate` expõe, mais o termo de interação entre eles.
@@ -112,13 +135,21 @@ def atribuir_degradacao(
     a esconder: atribuir 100% da queda à soma das partes isoladas seria mais simples de
     escrever e menos honesto do que é o número.
 
-    `mes` fixa a intensidade (`k = mes / MESES`, a mesma fórmula de `simular_producao`) e
-    as sementes por transformação estocástica (`seed + 2*mes` para o atraso, `seed +
-    2*mes + 1` para o concept drift) — os mesmos valores que `simular_producao` usaria
-    para esse mês, e por isso o cenário "todos" reproduz, linha a linha, o lote que a
-    simulação de produção geraria para `mes` com a mesma `seed`.
+    `mes` e `meses` fixam a intensidade (`k = mes / meses`, a mesma fórmula de
+    `simular_producao`) e `seed` fixa as sementes por transformação estocástica (`seed +
+    2*mes` para o atraso, `seed + 2*mes + 1` para o concept drift) — os mesmos valores que
+    `simular_producao` usaria para esse mês, e por isso o cenário "todos" reproduz, linha a
+    linha, o lote que a simulação de produção geraria para `mes` com a mesma `seed`.
+
+    **`meses` precisa ser o MESMO que gerou os lotes monitorados.** É o parâmetro que a
+    orquestração (`credito.pipeline.monitoring.executar_monitoramento`) repassa junto com
+    o seu próprio, exatamente porque o default `MESES` descreveria uma janela que não foi a
+    simulada assim que alguém pedisse outra — e a decomposição passaria a falar de um
+    processo gerador que nunca produziu os lotes em análise (ver o docstring do módulo).
+    Por isso `meses` sai também no resultado: quem lê o bloco no JSON consolidado não
+    precisa deduzir a janela do contexto.
     """
-    k = mes / MESES
+    k = mes / meses
     seed_atraso = seed + 2 * mes
     seed_concept = seed + 2 * mes + 1
 
@@ -146,6 +177,7 @@ def atribuir_degradacao(
     return {
         "metrica": METRICA,
         "mes": mes,
+        "meses": meses,
         "seed": seed,
         "metricas_por_cenario": metricas,
         "degradacao_por_cenario": degradacao,

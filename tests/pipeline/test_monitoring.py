@@ -150,6 +150,33 @@ def test_ponta_a_ponta_grava_o_resumo_consolidado_em_json(ambiente):
     assert len(conteudo["lotes"]) == 6
 
 
+def test_atribuicao_causal_usa_a_mesma_janela_dos_lotes_monitorados(ambiente):
+    """Regressão do acoplamento que faltava: `executar_monitoramento` expõe `meses` e o
+    usa para gerar os lotes, mas `atribuir_degradacao` tem o seu próprio default (`MESES`,
+    6). Sem repassar `meses`, uma janela diferente de 6 produziria um bloco
+    `atribuicao_causal_por_lote` calculado com `k = mes / 6` enquanto os lotes medidos
+    foram gerados com `k = mes / meses` — a decomposição descreveria um processo gerador
+    que nunca produziu os lotes do relatório, sem nenhum aviso.
+
+    Uma janela de 3 meses é o caso mínimo que separa as duas leituras (todo teste desta
+    suíte usava `meses=6`, o único valor em que o default coincide com a janela).
+    """
+    resultado = executar_monitoramento(meses=3, seed=123)
+
+    atribuicao = resultado["atribuicao_causal_por_lote"]
+    assert set(atribuicao) == {"mes_01", "mes_02", "mes_03"}
+    for mes, bloco in enumerate(atribuicao.values(), start=1):
+        assert bloco["mes"] == mes
+        assert bloco["meses"] == 3
+
+    # E a prova de que a janela mudou o número, não só o metadado: o cenário "todos" do
+    # último mês tem que bater com a métrica que o lote de fato monitorado produziu — o
+    # mesmo `avaliar` já guardado em `metricas_campeao`.
+    assert resultado["atribuicao_causal_por_lote"]["mes_03"]["metricas_por_cenario"][
+        "todos"
+    ] == pytest.approx(resultado["lotes"]["mes_03"]["metricas_campeao"]["auc_roc"])
+
+
 def test_consolidacao_identifica_as_features_corretas(ambiente):
     """As três variáveis que `credito.data.simulate` de fato desloca
     (`VARIAVEIS_COM_DRIFT`) precisam cruzar para atenção em algum lote da janela; as sete

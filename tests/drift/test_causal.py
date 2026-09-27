@@ -254,16 +254,64 @@ def test_cenario_todos_reproduz_o_lote_de_simular_producao(amostra):
     assert resultado["metricas_por_cenario"]["todos"] == pytest.approx(esperado)
 
 
-def test_cenario_todos_em_mes_intermediario_reproduz_simular_producao(amostra):
+@pytest.mark.parametrize(
+    ("mes", "meses"),
+    [
+        (3, MESES),  # janela padrão, mês intermediário: k = 3/6
+        (3, 3),  # janela curta, último mês dela: k = 3/3 = 1,0
+        (2, 3),  # janela curta, mês intermediário dela: k = 2/3
+        (9, 12),  # janela longa: k = 9/12
+    ],
+)
+def test_cenario_todos_em_mes_intermediario_reproduz_simular_producao(amostra, mes, meses):
+    """O cenário "todos" tem que reproduzir o lote de `simular_producao` para o MESMO
+    par (`mes`, `meses`) — não só para a janela padrão.
+
+    A janela entra aqui porque ela decide a intensidade (`k = mes / meses`): antes de
+    `atribuir_degradacao` receber `meses`, os três casos com `meses != MESES` calculavam
+    `k = mes / 6` enquanto a simulação usava `k = mes / meses`, e a decomposição descrevia
+    um processo gerador que não produziu o lote monitorado. Com `meses=6` em todo lugar —
+    o único valor que os testes usavam — a divergência era invisível.
+    """
     modelo = _ModeloSensivelAUmaVariavel("DebtRatio")
-    mes = 3
 
-    resultado = atribuir_degradacao(amostra, modelo, mes=mes, seed=SEED)
+    resultado = atribuir_degradacao(amostra, modelo, mes=mes, seed=SEED, meses=meses)
 
-    lotes = simular_producao(amostra, seed=SEED)
+    lotes = simular_producao(amostra, meses=meses, seed=SEED)
     esperado = avaliar(modelo, lotes[f"mes_{mes:02d}"])[METRICA]
 
+    assert resultado["meses"] == meses
     assert resultado["metricas_por_cenario"]["todos"] == pytest.approx(esperado)
+
+
+def test_meses_muda_de_fato_a_intensidade_do_mesmo_mes(amostra):
+    """O par negativo do teste acima: `meses` não pode ser um parâmetro aceito e ignorado.
+
+    O mesmo `mes=3` com `meses=3` (k=1,0) e com `meses=6` (k=0,5) tem que produzir lotes
+    diferentes — se a função lesse a constante `MESES` em vez do parâmetro, os dois
+    resultados sairiam idênticos e o teste acima poderia passar por coincidência de
+    janela.
+    """
+    modelo = _ModeloSensivelAUmaVariavel("DebtRatio")
+
+    janela_curta = atribuir_degradacao(amostra, modelo, mes=3, seed=SEED, meses=3)
+    janela_padrao = atribuir_degradacao(amostra, modelo, mes=3, seed=SEED, meses=6)
+
+    assert janela_curta["metricas_por_cenario"]["todos"] != pytest.approx(
+        janela_padrao["metricas_por_cenario"]["todos"]
+    )
+
+
+def test_meses_default_e_a_constante_do_simulador(amostra):
+    # Omitir `meses` tem que equivaler a passar `MESES` — o default existe para o chamador
+    # que usa a janela padrão, não para mudar o resultado em silêncio.
+    modelo = _ModeloSensivelAUmaVariavel("DebtRatio")
+
+    omitido = atribuir_degradacao(amostra, modelo, mes=4, seed=SEED)
+    explicito = atribuir_degradacao(amostra, modelo, mes=4, seed=SEED, meses=MESES)
+
+    assert omitido["meses"] == MESES
+    assert omitido["metricas_por_cenario"] == pytest.approx(explicito["metricas_por_cenario"])
 
 
 # --- Reprodutibilidade ---------------------------------------------------------------

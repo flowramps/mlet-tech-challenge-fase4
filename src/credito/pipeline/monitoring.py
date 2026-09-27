@@ -324,8 +324,12 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
     # divergir por terem sido calculadas duas vezes.
     degradacao = {nome: dados["metricas_campeao"] for nome, dados in relatorio_por_lote.items()}
 
+    # `meses` vai junto: sem ele, `atribuir_degradacao` cairia no default `MESES` e
+    # calcularia `k = mes / MESES` enquanto os lotes acima foram gerados com
+    # `k = mes / meses` — a decomposição descreveria um processo gerador que não produziu
+    # nenhum dos lotes monitorados, em silêncio (ver o docstring de `drift/causal.py`).
     atribuicao_causal = {
-        f"mes_{mes:02d}": atribuir_degradacao(amostra, modelo, mes=mes, seed=seed)
+        f"mes_{mes:02d}": atribuir_degradacao(amostra, modelo, mes=mes, seed=seed, meses=meses)
         for mes in range(1, meses + 1)
     }
 
