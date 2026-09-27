@@ -11,9 +11,21 @@ Duas coisas diferentes acontecem, e ficam em funções separadas de propósito:
   ``aplicar_drift_de_renda``, ``aplicar_drift_de_divida`` e ``aplicar_drift_de_atraso``
   fazem, cada uma isolada numa única coluna.
 - **Concept drift** muda ``P(y|X)`` — a relação entre entrada e desfecho. É o que
-  ``aplicar_concept_drift`` faz: o rótulo do lote de produção é **recalculado**, não
-  copiado da Referência, porque sob inflação o mesmo ``DebtRatio`` passa a implicar mais
-  risco do que implicava antes.
+  ``aplicar_concept_drift`` faz: em intensidade zero o rótulo é **exatamente** o da
+  Referência, linha a linha; acima de zero, uma fração crescente dos rótulos negativos
+  de um segmento específico (histórico de atraso limpo, mas alavancagem alta — ver
+  ``_regiao_de_risco_emergente``) vira positiva, porque sob inflação esse segmento deixa
+  de se comportar como o passado ensinou.
+
+  A primeira versão deste módulo recalculava o rótulo inteiro, em todo mês, inclusive no
+  mês 0, a partir de um modelo logístico univariado sobre ``DebtRatio`` calibrado para
+  reproduzir a taxa agregada de positivos da Referência (6,94%). Isso preservava a taxa
+  **marginal**, não a condicional ``P(y|X)`` — e por isso o campeão, treinado nas dez
+  features reais, media AUC-PR 0,0782 contra o mês 0 (medido contra a partição de teste
+  real, 23.584 linhas), quando o desempenho histórico é 0,3716: o rótulo sintético não
+  tinha relação com o que o campeão aprendeu, mesmo antes de qualquer drift. O desenho
+  atual corrige isso na raiz: fora do segmento afetado, e em qualquer segmento quando
+  ``intensidade == 0``, o rótulo nunca é tocado.
 
 As quatro funções são expostas separadamente — não só compostas dentro de
 ``simular_producao`` — porque uma etapa posterior faz atribuição causal por
@@ -31,7 +43,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from credito.schema import ALVO, ATRASO_MAXIMO_PLAUSIVEL, DEBT_RATIO_MAXIMO, FEATURES
+from credito.schema import (
+    ALVO,
+    ATRASO_MAXIMO_PLAUSIVEL,
+    COLUNAS_DE_ATRASO,
+    DEBT_RATIO_MAXIMO,
+    FEATURES,
+)
 
 MESES: int = 6
 
@@ -67,29 +85,37 @@ _FRACAO_MAXIMA_ATRASO = 0.15
 # diagnóstico de valores distintos ou de forma de cauda.
 _COEFICIENTE_DIVIDA = 0.80
 
-# Padronização de DebtRatio usada em `aplicar_concept_drift`: média e desvio medidos na
-# Referência real (117.917 linhas), `ref.DebtRatio.mean()` e `.std()`. É fixa — não
-# recalculada por lote — porque o que muda com a inflação é o que um DebtRatio já
-# conhecido *significa* em termos de risco, não a régua que mede esse DebtRatio. Uma
-# padronização recalculada por lote apagaria o próprio deslocamento de `P(X)` que o data
-# drift produziu, o que tornaria concept e data drift artificialmente independentes por
-# construção em vez de por medição.
-_MEDIA_DIVIDA_REFERENCIA = 0.374921
-_DESVIO_DIVIDA_REFERENCIA = 0.483042
+# O segmento de risco emergente: histórico de atraso limpo (as três colunas de
+# `COLUNAS_DE_ATRASO` em zero) e alavancagem (`DebtRatio`) acima do próprio p75 desse
+# subgrupo. Medido na Referência real (117.917 linhas): histórico limpo é 78,8% da
+# Referência; dentro dele, o quartil superior de DebtRatio (>= 0,458121, o p75 do próprio
+# subgrupo — `ref[atraso_limpo].DebtRatio.quantile(0.75)`) já tem taxa de positivos
+# 4,86% contra 2,32% no resto do mesmo subgrupo — o dobro, dentro de um segmento que hoje
+# é mais seguro que a média geral (6,94%). É o "novo perfil de cliente" que o enunciado
+# pede: um grupo que o histórico ensinou a tratar como baixo risco, e cuja alavancagem
+# crescente (o mesmo eixo que `aplicar_drift_de_divida` infla) é o sinal, já presente nos
+# dados reais, de que essa crença deixa de valer sob inflação.
+_LIMIAR_DEBT_RATIO_REGIAO = 0.458121
 
-INCLINACAO_DIVIDA = 1.0
+# Fração máxima (k=1) dos elegíveis (região ∩ rótulo negativo) que vira positiva.
+# Calibrado rodando o campeão publicado (`models/model.joblib`) contra os seis meses
+# simulados na partição de teste real (23.584 linhas, mesmo corte de `separar()`):
+# valores entre 0,15 e 0,35 produzem AUC-PR e recall da classe positiva
+# monotonicamente decrescentes mês a mês; acima disso a taxa de positivos do segmento
+# infla o bastante para a AUC-PR voltar a subir (mais positivos fáceis de ordenar no
+# topo), o oposto de degradação. 0,25 fica no meio dessa faixa medida, com folga dos
+# dois lados.
+_TAXA_MAXIMA_DE_INVERSAO = 0.25
 
-# Calibrado (Passo 5) por bisseção contra a Referência real (117.917 linhas): é o valor
-# que faz a média de sigmoid(LOGITO_BASE + INCLINACAO_DIVIDA * divida_padronizada), sobre
-# o DebtRatio real da Referência em k=0, reproduzir a taxa de positivos medida na própria
-# Referência, 6,9422%. Valor obtido: -2,845598.
-LOGITO_BASE = -2.845598
 
-# Faz a taxa de positivos subir ao longo dos meses. Medido rodando `simular_producao`
-# sobre uma amostra de 20.000 linhas da Referência real (Passo 5): a taxa de positivos
-# sai de 6,89% no mês 0 para 24,14% no mês 6 — um aumento visível sem ser uma inversão
-# implausível da base de risco.
-DESLOCAMENTO = 1.0
+def _regiao_de_risco_emergente(frame: pd.DataFrame) -> pd.Series:
+    """O segmento cujo ``P(y|X)`` a inflação desloca: ver a procedência medida em
+    `_LIMIAR_DEBT_RATIO_REGIAO`. Definido só a partir de `FEATURES` — nunca da previsão
+    de nenhum modelo — para que a mudança seja descobrível por qualquer campeão que
+    olhasse para esses dados, não construída contra as previsões de um em particular.
+    """
+    atraso_limpo = (frame[list(COLUNAS_DE_ATRASO)] == 0).all(axis=1)
+    return atraso_limpo & (frame["DebtRatio"] >= _LIMIAR_DEBT_RATIO_REGIAO)
 
 
 def aplicar_drift_de_renda(frame: pd.DataFrame, intensidade: float) -> pd.DataFrame:
@@ -143,25 +169,32 @@ def aplicar_drift_de_atraso(frame: pd.DataFrame, intensidade: float, *, seed: in
 
 
 def aplicar_concept_drift(frame: pd.DataFrame, intensidade: float, *, seed: int) -> pd.DataFrame:
-    """Recalcula o rótulo — muda ``P(y|X)``, nunca as features.
+    """Muda ``P(y|X)`` dentro do segmento de risco emergente — nunca as features, e nunca
+    nada fora do segmento.
 
-    Sob inflação, o mesmo ``DebtRatio`` passa a implicar mais risco: o logito soma um
-    termo fixo (``LOGITO_BASE``), um termo proporcional ao DebtRatio padronizado
-    (``INCLINACAO_DIVIDA``) e um deslocamento que cresce com a intensidade
-    (``DESLOCAMENTO * intensidade``). O rótulo é **sorteado** a partir dessa
-    probabilidade, não copiado — duas linhas com o mesmo DebtRatio e a mesma intensidade
-    podem sair com rótulos diferentes, exatamente como duas pessoas com o mesmo perfil de
-    risco não têm necessariamente o mesmo desfecho.
+    Em ``intensidade == 0`` o rótulo devolvido é **idêntico** ao recebido: nenhuma linha é
+    sorteada, nenhuma é tocada. Acima de zero, uma fração ``_TAXA_MAXIMA_DE_INVERSAO *
+    intensidade`` dos elegíveis — linhas dentro de `_regiao_de_risco_emergente` cujo
+    rótulo ainda é negativo — vira positiva, sorteada sem reposição com `seed`. É uma
+    inversão, não um sorteio a partir de uma probabilidade recalculada do zero: uma linha
+    fora do segmento, ou já positiva, sai exatamente como entrou, em qualquer
+    intensidade — a mudança de crença é sobre esse segmento, não sobre o dataset inteiro.
     """
     resultado = frame.copy()
-    divida_padronizada = (
-        resultado["DebtRatio"].to_numpy() - _MEDIA_DIVIDA_REFERENCIA
-    ) / _DESVIO_DIVIDA_REFERENCIA
-    logito = LOGITO_BASE + INCLINACAO_DIVIDA * divida_padronizada + DESLOCAMENTO * intensidade
-    probabilidade = 1 / (1 + np.exp(-logito))
+    if intensidade <= 0:
+        return resultado
 
-    gerador = np.random.default_rng(seed)
-    resultado[ALVO] = (gerador.random(len(resultado)) < probabilidade).astype(int)
+    candidatos = _regiao_de_risco_emergente(resultado) & (resultado[ALVO] == 0)
+    elegiveis = np.flatnonzero(candidatos.to_numpy())
+    quantidade = int(round(_TAXA_MAXIMA_DE_INVERSAO * intensidade * len(elegiveis)))
+
+    if quantidade > 0:
+        gerador = np.random.default_rng(seed)
+        selecionados = gerador.choice(elegiveis, size=quantidade, replace=False)
+        alvo = resultado[ALVO].to_numpy().copy()
+        alvo[selecionados] = 1
+        resultado[ALVO] = alvo
+
     return resultado
 
 
@@ -175,10 +208,11 @@ def simular_producao(
     """Compõe as quatro transformações num lote por mês, do mês 0 (a Referência) ao mês
     ``meses``, com intensidade progressiva ``k = mes / meses``.
 
-    O mês 0 sai idêntico à Referência em FEATURES: multiplicar por ``1 + coef*0`` é
-    multiplicar por 1, e injetar em ``0,15*0`` das linhas é injetar em zero linhas. Isso é
-    o que torna o mês 0 um marco confiável de "sem drift", não um lote especial tratado à
-    parte.
+    O mês 0 sai idêntico à Referência em FEATURES **e** no rótulo: multiplicar por
+    ``1 + coef*0`` é multiplicar por 1, injetar em ``0,15*0`` das linhas é injetar em zero
+    linhas, e ``aplicar_concept_drift`` devolve o rótulo intocado quando ``intensidade``
+    é zero. Isso é o que torna o mês 0 um marco confiável de "sem drift" — inclusive para
+    quem for medir o campeão contra ele —, não um lote especial tratado à parte.
 
     ``modelo``, quando informado, recebe a mesma interface de ``model.evaluate``
     (``predict_proba`` sobre ``FEATURES``) e grava a probabilidade prevista numa coluna

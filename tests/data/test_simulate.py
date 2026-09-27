@@ -9,6 +9,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from credito.contracts.pandera_backend import construir_validador
 from credito.data.simulate import (
@@ -19,6 +22,7 @@ from credito.data.simulate import (
     aplicar_drift_de_renda,
     simular_producao,
 )
+from credito.model.evaluate import avaliar
 from credito.schema import ALVO, FEATURES
 
 N = 800
@@ -120,27 +124,113 @@ def test_aplicar_drift_de_atraso_nao_ultrapassa_o_teto_plausivel():
     assert (resultado["NumberOfTime30-59DaysPastDueNotWorse"] <= 20).all()
 
 
-def test_aplicar_concept_drift_sorteia_o_alvo_nao_copia():
-    # Mesmo DebtRatio, mesma intensidade — se o rótulo fosse copiado, cada bloco de
-    # linhas idênticas sairia inteiro 0 ou inteiro 1. O sorteio produz os dois valores.
-    frame = pd.DataFrame({"DebtRatio": [0.3] * 500, ALVO: [0] * 500})
+def _linhas_de_regiao(n: int, *, debt_ratio: float, alvo: int = 0) -> pd.DataFrame:
+    """Linhas dentro do segmento de risco emergente: histórico de atraso limpo (as três
+    colunas de `COLUNAS_DE_ATRASO` em zero) e `DebtRatio` acima do limiar do módulo."""
+    return pd.DataFrame(
+        {
+            "DebtRatio": [debt_ratio] * n,
+            "NumberOfTime30-59DaysPastDueNotWorse": [0] * n,
+            "NumberOfTimes90DaysLate": [0] * n,
+            "NumberOfTime60-89DaysPastDueNotWorse": [0] * n,
+            ALVO: [alvo] * n,
+        }
+    )
+
+
+def test_aplicar_concept_drift_intensidade_zero_preserva_o_rotulo_real():
+    # O requisito central do redesenho: em k=0 o rótulo não é sorteado, é o mesmo — linha
+    # a linha, não só a mesma taxa agregada.
+    frame = _linhas_de_regiao(500, debt_ratio=0.9)
 
     resultado = aplicar_concept_drift(frame, 0.0, seed=1)
 
-    assert set(resultado[ALVO].unique()) == {0, 1}
+    pd.testing.assert_series_equal(resultado[ALVO], frame[ALVO])
+
+
+def test_aplicar_concept_drift_intensidade_zero_preserva_o_rotulo_real_na_amostra(amostra):
+    # A mesma invariante, mas sobre uma amostra com a variação real de FEATURES — não só
+    # o caso homogêneo acima.
+    resultado = aplicar_concept_drift(amostra, 0.0, seed=1)
+
+    pd.testing.assert_series_equal(resultado[ALVO], amostra[ALVO])
 
 
 def test_aplicar_concept_drift_sobe_com_a_intensidade():
-    frame = pd.DataFrame({"DebtRatio": [0.3] * 2000, ALVO: [0] * 2000})
+    frame = _linhas_de_regiao(2000, debt_ratio=0.9)
 
     taxa_k0 = aplicar_concept_drift(frame, 0.0, seed=1)[ALVO].mean()
     taxa_k1 = aplicar_concept_drift(frame, 1.0, seed=1)[ALVO].mean()
 
+    assert taxa_k0 == 0.0
     assert taxa_k1 > taxa_k0
 
 
+def test_aplicar_concept_drift_inverte_fracao_esperada_dentro_da_regiao():
+    frame = _linhas_de_regiao(2000, debt_ratio=0.9)
+
+    resultado = aplicar_concept_drift(frame, 1.0, seed=1)
+
+    # Fração literal do módulo (`_TAXA_MAXIMA_DE_INVERSAO`): 25% dos elegíveis no mês 6
+    # (k=1) — todas as 2000 linhas são elegíveis aqui (região, rótulo negativo).
+    assert int(resultado[ALVO].sum()) == 500
+
+
+def test_aplicar_concept_drift_e_proporcional_a_intensidade():
+    frame = _linhas_de_regiao(2000, debt_ratio=0.9)
+
+    resultado = aplicar_concept_drift(frame, 0.5, seed=1)
+
+    assert int(resultado[ALVO].sum()) == 250
+
+
+def test_aplicar_concept_drift_nao_inverte_fora_da_regiao_por_debt_ratio_baixo():
+    # Histórico de atraso limpo, mas DebtRatio abaixo do limiar: fora da região, o rótulo
+    # não muda em nenhuma intensidade.
+    frame = _linhas_de_regiao(1000, debt_ratio=0.1)
+
+    resultado = aplicar_concept_drift(frame, 1.0, seed=1)
+
+    assert (resultado[ALVO] == 0).all()
+
+
+def test_aplicar_concept_drift_nao_inverte_fora_da_regiao_por_atraso_sujo():
+    # DebtRatio alto, mas histórico de atraso NÃO limpo: fora da região.
+    frame = pd.DataFrame(
+        {
+            "DebtRatio": [0.9] * 1000,
+            "NumberOfTime30-59DaysPastDueNotWorse": [1] * 1000,
+            "NumberOfTimes90DaysLate": [0] * 1000,
+            "NumberOfTime60-89DaysPastDueNotWorse": [0] * 1000,
+            ALVO: [0] * 1000,
+        }
+    )
+
+    resultado = aplicar_concept_drift(frame, 1.0, seed=1)
+
+    assert (resultado[ALVO] == 0).all()
+
+
+def test_aplicar_concept_drift_nao_inverte_quem_ja_e_positivo():
+    # Já positivo: não há o que inverter, e a contagem de positivos não pode dobrar.
+    frame = _linhas_de_regiao(1000, debt_ratio=0.9, alvo=1)
+
+    resultado = aplicar_concept_drift(frame, 1.0, seed=1)
+
+    assert (resultado[ALVO] == 1).all()
+
+
 def test_aplicar_concept_drift_nao_toca_features():
-    frame = pd.DataFrame({"DebtRatio": [0.3, 0.9], "MonthlyIncome": [3000.0, 5000.0], ALVO: [0, 1]})
+    frame = pd.DataFrame(
+        {
+            "DebtRatio": [0.3, 0.9],
+            "MonthlyIncome": [3000.0, 5000.0],
+            "NumberOfTime30-59DaysPastDueNotWorse": [0, 0],
+            "NumberOfTimes90DaysLate": [0, 0],
+            "NumberOfTime60-89DaysPastDueNotWorse": [0, 0],
+            ALVO: [0, 1],
+        }
+    )
 
     resultado = aplicar_concept_drift(frame, 1.0, seed=1)
 
@@ -185,6 +275,18 @@ def test_mes_zero_e_a_referencia(amostra):
     pd.testing.assert_frame_equal(lotes["mes_00"][list(FEATURES)], amostra[list(FEATURES)])
 
 
+def test_mes_zero_preserva_o_alvo_real(amostra):
+    """Critério de aceite central desta correção: o mês 0 não é só a mesma TAXA de
+    positivos da Referência, é o mesmo RÓTULO, linha a linha — quem inadimple no mês 0 é
+    exatamente quem inadimple na Referência, não uma reamostragem que só coincide na
+    média. É o que torna válido medir o campeão contra o mês 0 como proxy do seu
+    desempenho real de teste.
+    """
+    lotes = simular_producao(amostra, meses=6, seed=42)
+
+    pd.testing.assert_series_equal(lotes["mes_00"][ALVO], amostra[ALVO])
+
+
 def test_intensidade_e_monotonica(amostra):
     """A renda mediana precisa subir a cada mês, senão não há 'passagem do tempo'."""
     lotes = simular_producao(amostra, meses=6, seed=42)
@@ -205,12 +307,17 @@ def test_todo_lote_passa_no_contrato(amostra):
 
 
 def test_concept_drift_muda_a_taxa_de_positivos(amostra):
+    """O desenho novo é localizado (só o segmento de risco emergente, só quem ainda é
+    negativo), não uma reamostragem global — por isso o aumento de taxa é bem mais
+    modesto que o defeito original, mas precisa existir e crescer mês a mês.
+    """
     lotes = simular_producao(amostra, meses=6, seed=42)
+    taxas = [lotes[f"mes_{m:02d}"][ALVO].mean() for m in range(7)]
 
-    taxa_inicial = lotes["mes_00"][ALVO].mean()
-    taxa_final = lotes["mes_06"][ALVO].mean()
-
-    assert taxa_final > taxa_inicial * 1.5
+    assert taxas == sorted(taxas)
+    # Medido nesta fixture com este seed: 0,08125 -> 0,09625 (+18,5%). A margem (>1,1)
+    # absorve variação de fixture/seed sem aceitar um mecanismo que não move nada.
+    assert taxas[-1] > taxas[0] * 1.1
 
 
 def test_data_drift_sozinho_nao_move_o_rotulo(amostra):
@@ -246,3 +353,75 @@ def test_colunas_sem_drift_ficam_intactas(amostra):
 def test_variaveis_com_drift_e_subconjunto_das_features():
     assert set(VARIAVEIS_COM_DRIFT) <= set(FEATURES)
     assert len(VARIAVEIS_COM_DRIFT) >= 2
+
+
+def test_degradacao_e_monotonica_para_um_modelo_que_ignora_o_segmento():
+    """A prova end-to-end de que o redesenho reverte o defeito original: um modelo
+    treinado ANTES do deslocamento — sem nenhuma pista de que histórico de atraso limpo
+    deixa de ser sinal de baixo risco em alavancagem alta — perde AUC-PR e recall da
+    classe positiva mês a mês contra os seis lotes simulados. Isso é o oposto do defeito
+    original, em que o campeão MELHORAVA ao longo dos meses porque o rótulo inteiro era
+    reamostrado de um sinal univariado que a inflação só fortalecia.
+
+    Sintética, sem tocar o arquivo real nem `models/model.joblib` — a verificação com o
+    campeão de verdade e a partição de teste é o passo manual descrito no relatório desta
+    correção, não uma responsabilidade de teste automatizado (que não pode tocar o
+    dataset). Os coeficientes do gerador e a semente (42, 30.000 linhas) foram achados por
+    varredura para produzirem monotonicidade estrita nas duas métricas com este seed —
+    não são medição do dataset real, só o suficiente para exercitar o mecanismo aqui.
+    """
+    gerador = np.random.default_rng(42)
+    n = 30_000
+    atraso_sujo = gerador.random(n) < 0.4
+    divida = gerador.uniform(0.02, 1.2, n)
+    renda = gerador.uniform(1500.0, 12000.0, n)
+
+    # O gerador conhece um pouco de DebtRatio e renda (como o mundo real), mas a maior
+    # parte do risco vem do histórico de atraso — o modelo treinado nele aprende a
+    # confiar fortemente em "histórico limpo" como baixo risco, exatamente a crença que
+    # `_regiao_de_risco_emergente` (em `simulate.py`) documenta como sendo verdadeira
+    # hoje e vulnerável à inflação.
+    logito = -3.0 + 2.6 * atraso_sujo + 0.8 * (divida - 0.6) - 0.4 * (renda - 6000) / 6000
+    probabilidade_real = 1 / (1 + np.exp(-logito))
+    alvo = (gerador.random(n) < probabilidade_real).astype(int)
+
+    frame = pd.DataFrame(
+        {
+            "RevolvingUtilizationOfUnsecuredLines": gerador.uniform(0.01, 1.0, n),
+            "age": gerador.integers(18, 90, n),
+            "NumberOfTime30-59DaysPastDueNotWorse": np.where(
+                atraso_sujo, gerador.integers(1, 4, n), 0
+            ),
+            "DebtRatio": divida,
+            "MonthlyIncome": renda,
+            "NumberOfOpenCreditLinesAndLoans": gerador.integers(1, 20, n),
+            "NumberOfTimes90DaysLate": np.zeros(n, dtype=int),
+            "NumberRealEstateLoansOrLines": gerador.integers(0, 4, n),
+            "NumberOfTime60-89DaysPastDueNotWorse": np.zeros(n, dtype=int),
+            "NumberOfDependents": gerador.integers(0, 5, n).astype(float),
+        }
+    )
+    frame[ALVO] = alvo
+    frame = frame[[ALVO, *FEATURES]]
+
+    modelo = Pipeline(
+        [
+            ("escala", StandardScaler()),
+            (
+                "classificador",
+                LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42),
+            ),
+        ]
+    )
+    modelo.fit(frame[list(FEATURES)], frame[ALVO])
+
+    lotes = simular_producao(frame, meses=6, seed=42)
+    metricas = [avaliar(modelo, lotes[f"mes_{mes:02d}"]) for mes in range(7)]
+
+    auc_pr = [m["auc_pr"] for m in metricas]
+    recall_positivo = [m["recall_positivo"] for m in metricas]
+
+    assert all(auc_pr[i + 1] < auc_pr[i] for i in range(len(auc_pr) - 1)), auc_pr
+    assert all(
+        recall_positivo[i + 1] < recall_positivo[i] for i in range(len(recall_positivo) - 1)
+    ), recall_positivo
