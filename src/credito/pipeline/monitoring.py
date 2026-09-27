@@ -228,9 +228,19 @@ def _gravar_relatorio_consolidado(diretorio: Path, resultado: dict[str, Any]) ->
     diretorio.mkdir(parents=True, exist_ok=True)
     caminho = diretorio / "monitoramento.json"
 
+    # A ORDEM DAS CHAVES É PARTE DO RELATÓRIO, não detalhe de serialização: `json.dumps`
+    # preserva a ordem de inserção do dict, e é essa ordem que o leitor humano encontra ao
+    # abrir o arquivo. `degradacao_por_lote` e `atribuicao_causal_por_lote` vêm ANTES de
+    # `lotes` (que carrega as tabelas de PSI/KS) pelo mesmo motivo que o docstring deste
+    # módulo e a seção de monitoramento do README dão: quem lê a tabela de PSI primeiro
+    # ancora em "maior número" e conclui que a feature de PSI mais alto é a causa mais
+    # provável — que nesta execução ela não é. Inverter as duas aqui tornaria falsa uma
+    # afirmação feita em três documentos (este módulo, o README e `docs/model_card.md`).
     serializavel = {
         "candidato": resultado["candidato"],
         "amostra_linhas": resultado["amostra_linhas"],
+        "degradacao_por_lote": resultado["degradacao_por_lote"],
+        "atribuicao_causal_por_lote": resultado["atribuicao_causal_por_lote"],
         "lotes": {
             nome: {
                 "linhas": dados["linhas"],
@@ -241,8 +251,6 @@ def _gravar_relatorio_consolidado(diretorio: Path, resultado: dict[str, Any]) ->
             }
             for nome, dados in resultado["lotes"].items()
         },
-        "degradacao_por_lote": resultado["degradacao_por_lote"],
-        "atribuicao_causal_por_lote": resultado["atribuicao_causal_por_lote"],
         "gate": _gate_para_dict(resultado["gate"]),
         "narrativa": resultado["narrativa"],
     }

@@ -150,6 +150,26 @@ def test_ponta_a_ponta_grava_o_resumo_consolidado_em_json(ambiente):
     assert len(conteudo["lotes"]) == 6
 
 
+def test_json_consolidado_poe_a_consequencia_antes_da_tabela_de_psi(ambiente):
+    """A ordem das chaves do JSON é uma afirmação feita em três documentos — o docstring
+    de `credito.pipeline.monitoring`, a seção de monitoramento do README e
+    `docs/model_card.md` dizem todos que o consolidado grava a consequência (degradação e
+    atribuição causal) ANTES da tabela de PSI/KS, que mora dentro de `lotes`.
+
+    `json.dumps` preserva a ordem de inserção do dict e `json.loads` a devolve — então a
+    ordem é observável por quem lê o arquivo, humano ou máquina, e é testável aqui. Sem
+    este teste a afirmação já tinha ficado falsa uma vez sem nada notar: `lotes` vinha
+    primeiro.
+    """
+    executar_monitoramento(meses=6, seed=123)
+
+    conteudo = json.loads((ambiente / "reports" / "monitoramento.json").read_text(encoding="utf-8"))
+    chaves = list(conteudo)
+
+    assert chaves.index("degradacao_por_lote") < chaves.index("lotes")
+    assert chaves.index("atribuicao_causal_por_lote") < chaves.index("lotes")
+
+
 def test_atribuicao_causal_usa_a_mesma_janela_dos_lotes_monitorados(ambiente):
     """Regressão do acoplamento que faltava: `executar_monitoramento` expõe `meses` e o
     usa para gerar os lotes, mas `atribuir_degradacao` tem o seu próprio default (`MESES`,
