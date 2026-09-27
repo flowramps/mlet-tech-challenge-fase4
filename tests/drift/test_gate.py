@@ -8,6 +8,8 @@ preserva sinal forte" verificam.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from credito.drift.base import DriftDeFeature, DriftReport, Severidade, classificar
@@ -400,10 +402,20 @@ def test_resumo_traz_a_nota_diagnostica_sem_citar_numeros_do_campeao():
     assert "degradacao_por_lote" in resumo
     # Nenhum número específico da decomposição causal pode vazar para o texto emitido —
     # regressão explícita: o gate não tem como medir esses números e não pode citá-los.
+    # Os quatro literais são os da execução ATUAL publicada no README e no model card
+    # (`DebtRatio` PSI 0,5046, `MonthlyIncome` PSI 0,2634, as duas juntas respondendo por
+    # 3,1% da degradação e o concept drift por 48,0%). Guardar contra valores já
+    # superseded — como "0,268"/"0,503", de uma execução anterior — deixaria a guarda
+    # verde justamente quando o vazamento fosse dos números certos.
     assert "3,1%" not in resumo
     assert "48,0%" not in resumo
-    assert "0,268" not in resumo
-    assert "0,503" not in resumo
+    assert "0,2634" not in resumo
+    assert "0,5046" not in resumo
+    # E a guarda que não apodrece na próxima execução: o resumo não contém NENHUM número
+    # decimal, em nenhum formato. Os quatro literais acima travam a regressão concreta;
+    # esta linha trava a classe inteira, inclusive os números da próxima medição, que
+    # ninguém vai lembrar de acrescentar aqui.
+    assert re.search(r"\d[.,]\d", resumo) is None
 
 
 # --- CruzamentoDeFeature é um dataclass simples, sem regra escondida --------------------
