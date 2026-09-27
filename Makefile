@@ -1,6 +1,6 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
-.PHONY: help install lint format test data train demo-contrato
+.PHONY: help install lint format test data train demo-contrato verificar-degradacao
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -29,3 +29,6 @@ train:            ## Treina os candidatos, avalia e promove o campeão
 
 demo-contrato:    ## Demonstra o contrato bloqueando um lote defeituoso
 	poetry run python scripts/demo_contrato.py
+
+verificar-degradacao: ## Confere que o campeão degrada monotonicamente nos 6 meses simulados
+	poetry run python scripts/verificar_degradacao.py

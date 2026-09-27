@@ -310,14 +310,23 @@ def test_concept_drift_muda_a_taxa_de_positivos(amostra):
     """O desenho novo é localizado (só o segmento de risco emergente, só quem ainda é
     negativo), não uma reamostragem global — por isso o aumento de taxa é bem mais
     modesto que o defeito original, mas precisa existir e crescer mês a mês.
+
+    O limiar (1,15x) é bem menor que o efeito medido contra o dado real (partição de
+    teste real, 23.584 linhas: 6,94% -> 15,82%, +128%) porque a região é uma fatia bem
+    menor desta fixture sintética: medido com `_regiao_de_risco_emergente(amostra)`,
+    só 5,4% das 800 linhas caem na região (43 linhas), contra ~20% na Referência real
+    — a fixture não foi desenhada para reproduzir a proporção real do segmento, só
+    para ter alguma massa nele. Um limiar calcado no efeito real (1,5x, como na versão
+    anterior deste teste) não sobra margem nenhuma nesta fixture pequena; 1,15x fica
+    abaixo do medido (1,1846x) com folga para não deixar passar um mecanismo quase
+    inerte, sem exigir da fixture um efeito que ela não tem massa para produzir.
     """
     lotes = simular_producao(amostra, meses=6, seed=42)
     taxas = [lotes[f"mes_{m:02d}"][ALVO].mean() for m in range(7)]
 
     assert taxas == sorted(taxas)
-    # Medido nesta fixture com este seed: 0,08125 -> 0,09625 (+18,5%). A margem (>1,1)
-    # absorve variação de fixture/seed sem aceitar um mecanismo que não move nada.
-    assert taxas[-1] > taxas[0] * 1.1
+    # Medido nesta fixture com este seed: 0,08125 -> 0,09625 (+18,46%).
+    assert taxas[-1] > taxas[0] * 1.15
 
 
 def test_data_drift_sozinho_nao_move_o_rotulo(amostra):

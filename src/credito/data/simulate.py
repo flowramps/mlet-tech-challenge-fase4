@@ -98,13 +98,28 @@ _COEFICIENTE_DIVIDA = 0.80
 _LIMIAR_DEBT_RATIO_REGIAO = 0.458121
 
 # Fração máxima (k=1) dos elegíveis (região ∩ rótulo negativo) que vira positiva.
-# Calibrado rodando o campeão publicado (`models/model.joblib`) contra os seis meses
-# simulados na partição de teste real (23.584 linhas, mesmo corte de `separar()`):
-# valores entre 0,15 e 0,35 produzem AUC-PR e recall da classe positiva
-# monotonicamente decrescentes mês a mês; acima disso a taxa de positivos do segmento
-# infla o bastante para a AUC-PR voltar a subir (mais positivos fáceis de ordenar no
-# topo), o oposto de degradação. 0,25 fica no meio dessa faixa medida, com folga dos
-# dois lados.
+#
+# Existe um teto estrutural para este valor, não só empírico: AUC-PR (average precision)
+# tem um piso que é a própria taxa de positivos do lote — é o valor que um classificador
+# SEM NENHUM poder de discriminação (ranking aleatório) já alcança. Inverter demais o
+# segmento não piora a discriminação do campeão além de um certo ponto (a região já era
+# pouco discriminada por ele antes de qualquer drift, por ser onde ele mais confiava no
+# histórico limpo) — o que muda, se a fração crescer demais, é a própria taxa de
+# positivos do lote, que arrasta esse piso para cima e pode superar a perda real de
+# ranking. Medido isolando o efeito: dobrando esta constante para 0,5 e rodando a
+# progressão inteira contra o campeão publicado e a partição de teste real, a AUC-ROC
+# (que mede só ranking, é insensível à prevalência) continua caindo mês a mês sem
+# nunca inverter (0,8421 → 0,5760, nunca abaixo de 0,5 — não é um ranking que se torna
+# anticorrelacionado), enquanto a AUC-PR cai e VOLTA A SUBIR a partir do mês 4 (0,2965 →
+# 0,3151), porque a taxa de positivos do lote passa de 6,94% para 24,78% no processo —
+# o piso subiu mais rápido do que a discriminação caiu. Com `_TAXA_MAXIMA_DE_INVERSAO`
+# em 0,25 (calibrado contra o mesmo campeão e a mesma partição), a taxa de positivos do
+# lote não passa de 15,82% no mês 6 e a AUC-PR cai nos seis meses sem reverter — medido,
+# não presumido, com folga: valores entre 0,15 e 0,35 preservam essa monotonicidade;
+# 0,25 fica no meio dessa faixa. `scripts/verificar_degradacao.py` (`make
+# verificar-degradacao`) reproduz esta medição sob demanda e falha se a monotonicidade
+# deixar de valer — para um retreino do campeão, uma mudança no limiar da região ou uma
+# atualização do dataset que a quebre silenciosamente.
 _TAXA_MAXIMA_DE_INVERSAO = 0.25
 
 
