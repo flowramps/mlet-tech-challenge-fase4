@@ -119,7 +119,14 @@ class EvidentlyDetector:
         As colunas são restritas a ``FEATURES`` explicitamente (``referencia[colunas]``) em
         vez de passar o DataFrame inteiro: um chamador que incluísse o alvo ou uma coluna
         de identificação no frame não deveria fazer essa coluna aparecer como "feature em
-        drift" no relatório.
+        drift" no relatório. Isso não é só higiene de relatório: uma coluna presente no
+        DataFrame mas ausente de ``numerical_columns`` é autodetectada pelo Evidently do
+        mesmo jeito, e medido contra o dataset real (117.917 linhas) remover esta restrição
+        faz ``Report.run()`` **não terminar em 120 s** — a coluna de alvo, quase binária,
+        aparentemente força um caminho de inferência muito mais caro. Um refactor futuro
+        que resolvesse o vazamento de outra forma (descartando o alvo mais cedo no
+        pipeline, por exemplo) e por isso removesse esta linha não estaria só reabrindo um
+        risco de relatório: estaria enviando um job de produção que trava.
         """
         colunas = list(FEATURES)
         definicao = DataDefinition(numerical_columns=colunas)
