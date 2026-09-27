@@ -35,7 +35,7 @@ def test_avaliar_gate_rejeita_lista_vazia():
         avaliar_gate([])
 
 
-# --- o desfecho de três bandas do brief --------------------------------------------------
+# --- o desfecho de três bandas ------------------------------------------------------------
 
 
 def test_gate_estavel_quando_nenhuma_feature_cruza_atencao():
@@ -175,8 +175,8 @@ def test_correcao_e_por_lote_nao_pela_janela_inteira():
     de 1 para 51, o limiar do rank 1 encolheria de 0,05 para 1/51*0,05 ≈ 0,00098, e
     0,04 > 0,00098 rebaixaria `DebtRatio` para ESTAVEL — usando informação de cinco
     lotes que, na linha do tempo real, ainda não tinham acontecido. Este teste fixa a
-    implementação correta (por lote) e é reproduzido como mutação no relatório desta
-    tarefa, revertendo para pooled e confirmando que ele fica vermelho.
+    implementação correta (por lote); reverter `avaliar_gate` para a correção agrupada faz
+    este teste ficar vermelho, que é o que o torna discriminante.
     """
     lote_com_sinal = _lote("mes_00", _feature("DebtRatio", 0.50, 0.04))
     lotes_de_ruido = [
@@ -200,7 +200,7 @@ def test_correcao_e_por_lote_nao_pela_janela_inteira():
 
 def test_severidade_efetiva_nunca_promove_acima_do_que_o_psi_sustenta():
     # Um p-valor de KS minúsculo não pode, sozinho, promover uma feature cujo PSI é
-    # baixo — severidade nasce de `classificar(psi)` (Tarefa 4) e a correção só pode
+    # baixo — severidade nasce de `classificar(psi)` (`drift/base.py`) e a correção só pode
     # rebaixar, nunca elevar. Família com sinal forte de KS (p=1e-9) só em `age`, cujo
     # PSI é 0,01 (ESTAVEL por construção).
     relatorios = [
@@ -399,7 +399,7 @@ def test_resumo_traz_a_nota_diagnostica_sem_citar_numeros_do_campeao():
     assert "atribuir_degradacao" in resumo
     assert "degradacao_por_lote" in resumo
     # Nenhum número específico da decomposição causal pode vazar para o texto emitido —
-    # regressão explícita contra o que a revisão desta tarefa pegou.
+    # regressão explícita: o gate não tem como medir esses números e não pode citá-los.
     assert "3,1%" not in resumo
     assert "48,0%" not in resumo
     assert "0,268" not in resumo

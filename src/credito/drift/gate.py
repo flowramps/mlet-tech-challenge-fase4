@@ -19,8 +19,9 @@ roteamento deste módulo (`_MENSAGENS`, `recomenda_retreino`, o `if significativ
 uma comparação de texto.
 
 **Por que Benjamini-Hochberg roda antes da severidade valer alguma coisa, não depois.**
-`DriftDeFeature.severidade` (Tarefa 4) já é travada por `classificar(psi_divergencia)` e
-por isso este módulo não pode — nem deveria — reescrever essa severidade. O que ele faz é
+`DriftDeFeature.severidade` (`drift/base.py`) já é travada por
+`classificar(psi_divergencia)` e por isso este módulo não pode — nem deveria — reescrever
+essa severidade. O que ele faz é
 computar uma severidade EFETIVA por par lote x feature: a severidade original quando o teste
 de KS da mesma feature, dentro do PRÓPRIO lote, sobrevive à correção de múltiplos testes,
 rebaixada para `ESTAVEL` quando não sobrevive. PSI mede o TAMANHO do deslocamento; KS testa
@@ -59,15 +60,16 @@ estado mais recente é o que `severidade_final` responde (ver `CruzamentoDeFeatu
 máximo entre TODOS os lotes da janela, não só do último: um episódio crítico que se
 recuperou antes do fim da janela continua tendo acontecido, e esconder isso atrás do
 estado final do último lote seria a mesma armadilha que `DriftReport.severidade_maxima`
-(Tarefa 4) já resolve dentro de um único lote — aqui só se estende a mesma regra a vários.
+(`drift/base.py`) já resolve dentro de um único lote — aqui só se estende a mesma regra a
+vários.
 
 **Drift de feature é diagnóstico, não o alarme.** PSI e KS medem o deslocamento da
 distribuição de entrada (P(X)); não medem, por si, quanto esse deslocamento custa ao
 campeão. A atribuição causal por intervenção (`credito.drift.causal.atribuir_degradacao`)
 existe precisamente para medir esse custo — isolando quanto cada variável desloca o
 desempenho quando as demais ficam fixas —, e mediu, contra o campeão real desta etapa, que
-a feature de maior PSI não é a que mais move a degradação (a decomposição está registrada
-no relatório dessa tarefa, não repetida aqui). Um leitor que visse só a tabela de PSI seria
+a feature de maior PSI não é a que mais move a degradação (a decomposição está publicada no
+README, não repetida aqui). Um leitor que visse só a tabela de PSI seria
 levado a concluir o oposto. `GateDeDrift.resumo` carrega essa ressalva qualitativa
 embutida (ver `_NOTA_DIAGNOSTICO`), para que a advertência viaje com o relatório mesmo
 para quem nunca abriu este docstring — deliberadamente SEM os números: este gate não tem
@@ -167,7 +169,7 @@ class GateDeDrift:
 
     @property
     def recomenda_retreino(self) -> bool:
-        """Só `True` quando a severidade é `CRITICO` — a única banda do brief que carrega
+        """Só `True` quando a severidade é `CRITICO` — a única das três bandas que carrega
         recomendação explícita de retreino. `ATENCAO` é "observar", não "agir"."""
         return self.severidade is Severidade.CRITICO
 
@@ -179,8 +181,8 @@ class GateDeDrift:
 
     @property
     def resumo(self) -> str:
-        """A narrativa que transforma a tabela de severidades em texto — o que o brief
-        pede explicitamente ("é o que transforma o relatório em narrativa"). Sempre
+        """A narrativa que transforma a tabela de severidades em texto legível — sem ela o
+        relatório é um conjunto de números que só quem conhece as bandas sabe ler. Sempre
         termina com `_NOTA_DIAGNOSTICO`, para que a ressalva "PSI alto não é o mesmo que
         causa mais provável" viaje junto com o relatório, não só com quem leu o
         docstring do módulo."""

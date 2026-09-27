@@ -2,9 +2,9 @@
 devolve pronto.
 
 O Evidently já calcula estas duas coisas, mas entrega um relatório HTML, não uma função
-que a Etapa 3 possa chamar e um humano possa auditar linha a linha. E o preset padrão do
-Evidently usa distância de Wasserstein, que o enunciado do projeto não menciona — usar o
-que o enunciado pede (PSI e KS) exige escrever as duas contas.
+que a camada de observabilidade possa chamar e um humano possa auditar linha a linha. E o
+preset padrão do Evidently usa distância de Wasserstein, que não é nenhuma das duas
+medidas que este projeto adota — usar PSI e KS exige escrever as duas contas.
 
 **A descoberta que molda este módulo:** binning por quantil com um número fixo de bins
 (o padrão de qualquer implementação ingênua, inclusive a deste projeto antes desta

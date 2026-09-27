@@ -1,9 +1,9 @@
 """Simulação do Dataset de Produção: a passagem do tempo como uma sequência de lotes.
 
-O enunciado pede "simular a passagem do tempo" — este módulo transforma essa frase em
-seis lotes mensais com intensidade progressiva, mais o mês 0 (a própria Referência), para
-que um gráfico mostre a degradação se instalando e não apenas dois estados, "antes" e
-"depois".
+Monitorar um modelo exige simular a passagem do tempo sobre a população: este módulo
+transforma essa exigência em seis lotes mensais com intensidade progressiva, mais o mês 0
+(a própria amostra de partida), para que a degradação apareça se instalando e não apenas
+como dois estados, "antes" e "depois".
 
 Duas coisas diferentes acontecem, e ficam em funções separadas de propósito:
 
@@ -53,8 +53,9 @@ from credito.schema import (
 
 MESES: int = 6
 
-# O enunciado exige alterar a distribuição de pelo menos duas variáveis importantes.
-# Entregamos três, cobrindo os dois tipos de drift que o enunciado também exige.
+# Deslocar a distribuição de pelo menos duas variáveis importantes é o mínimo para que o
+# detector tenha o que detectar. São três, cobrindo os dois tipos de drift que esta camada
+# precisa distinguir: data drift e concept drift.
 VARIAVEIS_COM_DRIFT: tuple[str, ...] = (
     "MonthlyIncome",
     "DebtRatio",
@@ -91,10 +92,10 @@ _COEFICIENTE_DIVIDA = 0.80
 # Referência; dentro dele, o quartil superior de DebtRatio (>= 0,458121, o p75 do próprio
 # subgrupo — `ref[atraso_limpo].DebtRatio.quantile(0.75)`) já tem taxa de positivos
 # 4,86% contra 2,32% no resto do mesmo subgrupo — o dobro, dentro de um segmento que hoje
-# é mais seguro que a média geral (6,94%). É o "novo perfil de cliente" que o enunciado
-# pede: um grupo que o histórico ensinou a tratar como baixo risco, e cuja alavancagem
-# crescente (o mesmo eixo que `aplicar_drift_de_divida` infla) é o sinal, já presente nos
-# dados reais, de que essa crença deixa de valer sob inflação.
+# é mais seguro que a média geral (6,94%). É o "novo perfil de cliente" que a simulação
+# precisa produzir: um grupo que o histórico ensinou a tratar como baixo risco, e cuja
+# alavancagem crescente (o mesmo eixo que `aplicar_drift_de_divida` infla) é o sinal, já
+# presente nos dados reais, de que essa crença deixa de valer sob inflação.
 _LIMIAR_DEBT_RATIO_REGIAO = 0.458121
 
 # Fração máxima (k=1) dos elegíveis (região ∩ rótulo negativo) que vira positiva.

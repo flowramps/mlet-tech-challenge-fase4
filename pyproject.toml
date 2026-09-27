@@ -97,7 +97,7 @@ filterwarnings = [
     # não um defeito deste projeto: o p-valor entregue nesse caminho já é a aproximação
     # assintótica padrão, a mesma que `mode="asymp"` pediria explicitamente, então nenhum
     # resultado fica errado. Reproduzido chamando `credito.drift.statistics.ks` (via a
-    # orquestração de monitoramento, Tarefa 7) sobre duas amostras sintéticas de 400
+    # orquestração de monitoramento) sobre duas amostras sintéticas de 400
     # linhas cada — o traceback termina dentro do SciPy. Sai quando o SciPy parar de
     # precisar desse fallback ou emitir o aviso de outra forma.
     # O ":" literal da mensagem original ("ks_2samp: Exact...") quebraria o parser de

@@ -1,17 +1,17 @@
-"""Backend Evidently: gera o relatório HTML — o entregável que o enunciado do projeto pede
-nominalmente — e devolve um ``DriftReport`` que corrobora a estatística própria de
-``drift/statistics.py``.
+"""Backend Evidently: gera o relatório HTML — o entregável visual desta camada — e devolve
+um ``DriftReport`` que corrobora a estatística própria de ``drift/statistics.py``.
 
 **Por que existir ao lado de ``drift/statistics.py`` em vez de substituí-lo:** o PSI e o KS
 próprios são a conta que um humano confere linha a linha; o Evidently não expõe os cortes
 de bin que usa internamente, então não dá para auditar o número da mesma forma — mas ele
-produz o HTML que o enunciado nomeia, e nenhum código deste projeto reimplementa geração de
-relatório visual. Os dois convivem atrás da mesma interface (``DriftDetector``,
+produz o HTML que esta camada precisa entregar, e nenhum código deste projeto reimplementa
+geração de relatório visual. Os dois convivem atrás da mesma interface (``DriftDetector``,
 ``drift/base.py``) porque respondem à mesma pergunta por caminhos independentes.
 
 **A armadilha que o preset do Evidently esconde:** ``DataDriftPreset`` sem argumento usa
-distância de Wasserstein por padrão — uma estatística que o enunciado do projeto não
-menciona. Todo ponto de construção de métrica aqui passa ``method="psi"`` ou
+distância de Wasserstein por padrão — medido rodando o preset vazio, ele devolve
+``method='Wasserstein distance (normed)'``, que não é nenhuma das duas medidas que este
+projeto adota. Todo ponto de construção de métrica aqui passa ``method="psi"`` ou
 ``method="ks"`` explicitamente; nenhum caminho depende do default da biblioteca.
 
 **Por que os dois PSI não batem em valor:** ``credito.drift.statistics.psi`` decide a

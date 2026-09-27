@@ -216,7 +216,8 @@ def test_variavel_ignorada_nao_move_a_previsao_em_nenhuma_linha(amostra):
 
 
 def test_todos_degrada_pelo_menos_tanto_quanto_o_maior_isolado(amostra):
-    """A expectativa do brief — a soma dos efeitos isolados não bate com o conjunto, mas o
+    """A propriedade esperada da decomposição — a soma dos efeitos isolados não bate com o
+    conjunto, mas o
     conjunto pelo menos iguala o maior isolado — vale aqui porque DUAS transformações
     diferentes atingem a mesma variável que o modelo usa: `aplicar_drift_de_atraso`
     (injeção não monotônica, muda a ordenação) e `aplicar_concept_drift` (inverte rótulo

@@ -1,6 +1,6 @@
 """``EvidentlyDetector`` tem duas responsabilidades e este arquivo testa as duas:
 
-1. Gerar o relatório HTML — o entregável nominal do enunciado —, e
+1. Gerar o relatório HTML — o entregável visual desta camada —, e
 2. Devolver um ``DriftReport`` que **concorda em veredicto** com ``drift/statistics.py``.
 
 O Evidently faz o próprio binning internamente (não expõe os cortes), então o PSI que ele

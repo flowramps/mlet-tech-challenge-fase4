@@ -183,7 +183,7 @@ def test_variavel_constante_na_referencia_nao_crasha():
 
 
 def test_variavel_discreta_zero_inflada_dispara_o_binning_por_valor():
-    """Uma das duas formas da descoberta desta tarefa: baixa cardinalidade concentrada.
+    """Uma das duas formas da descoberta que molda `psi()`: baixa cardinalidade concentrada.
 
     Réplica sintética da variável real: 14 valores distintos, 83,1% de zeros na
     referência (medido: `ref["NumberOfTime30-59DaysPastDueNotWorse"].nunique()` e

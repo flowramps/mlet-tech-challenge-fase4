@@ -9,7 +9,7 @@ periodicamente sobre o modelo já publicado — e falham por motivos diferentes.
 que ele aprendeu. Misturar os dois módulos misturaria dois desfechos que precisam ficar
 legíveis separadamente.
 
-**A ordem por lote** é a mesma do enunciado da tarefa: contrato -> predição do campeão ->
+**A ordem por lote** é deliberada: contrato -> predição do campeão ->
 PSI/KS próprios -> Evidently (HTML). O contrato roda em TODO lote e precisa passar — é a
 demonstração viva de que drift não é invalidez (ver `contracts/base.py`): um lote
 deslocado continua sendo dado válido, e só o gate de drift, nunca o contrato, decide se o
@@ -22,7 +22,8 @@ Referência reprovar — antes de qualquer simulação —, a causa é o arquivo
 (desatualizado ou corrompido): `ReferenciaInvalida` (abaixo, subclasse de
 `ContratoViolado`) carrega essa origem. Se um LOTE SIMULADO reprovar, a causa é o GERADOR
 (`credito.data.simulate`) produzindo dado que o próprio contrato rejeitaria — o oposto do
-que a tarefa pede ("drift não é invalidez") —, e continua sendo um `ContratoViolado` comum.
+princípio desta camada ("drift não é invalidez") —, e continua sendo um `ContratoViolado`
+comum.
 `main()` tem um `except` para cada uma, na ordem certa (a subclasse primeiro), e cada um
 loga a causa que de fato se aplica.
 

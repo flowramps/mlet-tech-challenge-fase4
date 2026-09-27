@@ -169,7 +169,7 @@ def test_consolidacao_identifica_as_features_corretas(ambiente):
 
 
 def test_lote_invalido_falha_o_run_com_contrato_violado(ambiente, monkeypatch):
-    """Regressão do requisito central da tarefa: se a simulação produzisse um lote que o
+    """Regressão do requisito central desta camada: se a simulação produzisse um lote que o
     contrato reprova, o run tem de parar com `ContratoViolado` — nunca chegar ao detector
     de drift fingindo que aquilo foi só um alerta.
 
@@ -240,8 +240,8 @@ def test_main_reporta_contrato_violado_como_defeito_do_gerador(ambiente, monkeyp
         main()
 
     assert saida.value.code == 1
-    # A mensagem precisa apontar o gerador, não o detector — é a distinção central da
-    # tarefa (drift não é invalidez; um lote inválido é defeito de quem o produziu).
+    # A mensagem precisa apontar o gerador, não o detector — é a distinção central desta
+    # camada (drift não é invalidez; um lote inválido é defeito de quem o produziu).
     assert "gerador" in caplog.text
     assert "não drift" in caplog.text or "nao drift" in caplog.text
 

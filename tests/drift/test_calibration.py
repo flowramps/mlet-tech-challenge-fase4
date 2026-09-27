@@ -1,8 +1,8 @@
 """A nula do PSI, a correção de múltiplos testes e a degradação do campeão — as três
 formas de rigor estatístico que separam "medimos um PSI de 0,12" de "sabemos se 0,12 é
 sinal ou ruído amostral neste dado". Nenhum teste toca rede nem o arquivo real do
-dataset: a calibração contra a Referência real é medição separada, documentada no
-relatório da tarefa, não suíte automatizada.
+dataset: a calibração contra a Referência real é medição separada, publicada no README,
+não suíte automatizada.
 """
 
 from __future__ import annotations
@@ -395,7 +395,7 @@ def test_degradacao_por_lote_usa_avaliar_do_modulo_de_evaluate(monkeypatch):
 
 
 def test_degradacao_por_lote_degrada_junto_com_o_deslocamento_do_rotulo():
-    # Réplica pequena e determinística do sinal que a tarefa existe para provar: o mesmo
+    # Réplica pequena e determinística do sinal que esta camada existe para provar: o mesmo
     # modelo (mesmas probabilidades fixas por posição) mede AUC-PR alta quando o rótulo
     # concorda com a ordem das probabilidades e AUC-PR baixa quando o rótulo se
     # deslocou o bastante para inverter essa ordem — a consequência que o drift de

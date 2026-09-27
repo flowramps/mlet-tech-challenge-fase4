@@ -1,6 +1,6 @@
 """Rigor estatístico que o PSI/KS por si só não dá: uma nula medida, uma correção de
-múltiplos testes e a consequência sobre o modelo — as três lacunas que a maioria das
-implementações de drift deixa em aberto (ver `barra-especialista.md`).
+múltiplos testes e a consequência sobre o modelo — as três lacunas que uma implementação
+de drift feita só de PSI e KS deixa em aberto.
 
 **1. A nula do PSI.** "PSI >= 0,25 é mudança material" é convenção de indústria — não uma
 medição deste dado. PSI tem distribuição amostral: com um número fixo de bins e um lote de
@@ -9,7 +9,7 @@ produzem PSI maior que zero só por acaso de amostragem. `distribuicao_nula_psi`
 distribuição por reamostragem, e `limiar_empirico` lê um percentil dela — o que transforma
 "0,25 é convenção" em "neste dado, com estes bins e este tamanho de lote, a nula chega a X
 no percentil Y". A calibração contra a Referência real (não incluída nos testes desta
-suíte, que não tocam o arquivo do dataset) está no relatório da tarefa.
+suíte, que não tocam o arquivo do dataset) está publicada no README.
 
 **2. Múltiplos testes.** Rodar KS em várias features por lote, cada uma a alfa=0,05, infla
 a chance de falso positivo por lote muito acima de 0,05 — é o problema clássico de

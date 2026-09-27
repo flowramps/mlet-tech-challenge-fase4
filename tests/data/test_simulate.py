@@ -338,7 +338,8 @@ def test_aplicar_drift_de_atraso_nao_cria_duplicata_exata_por_colisao_de_quase_g
     """Regressão: reproduzido contra a Referência real (117.917 linhas), o lote ``mes_02``
     da simulação continha uma linha colidindo com sua quase-gêmea depois da injeção de
     atraso — o contrato reprovava o lote inteiro, e um lote reprovado nunca chega ao
-    detector de drift (bloquearia a Tarefa 7 inteira). A fixture de 100 pares (200 linhas)
+    detector de drift (bloquearia a orquestração de monitoramento inteira). A fixture de 100
+    pares (200 linhas)
     não tem nenhuma duplicata antes da injeção; sem a correção em
     ``_desfazer_colisoes_de_atraso``, este teste falha de forma determinística com este
     seed — a chance de zero colisões em 100 pares independentes, cada um com 1/3 de chance
