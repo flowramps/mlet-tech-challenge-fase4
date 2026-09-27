@@ -12,13 +12,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from credito.data.prepare import ALVO, FEATURES
 from credito.model.evaluate import (
     FAIXAS_ETARIAS,
     avaliar,
     avaliar_por_faixa_etaria,
     salvar_metricas,
 )
+from credito.schema import ALVO, FEATURES
 
 
 class _ModeloFixo:

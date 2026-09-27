@@ -14,7 +14,8 @@ from credito.contracts.base import ContratoViolado
 from credito.contracts.pandera_backend import construir_validador
 from credito.data.adulterate import adulterar
 from credito.data.arff import ler_arff
-from credito.data.prepare import FEATURES, limpar
+from credito.data.prepare import limpar
+from credito.schema import FEATURES
 
 
 def main() -> int:

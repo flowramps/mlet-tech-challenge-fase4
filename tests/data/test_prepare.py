@@ -6,13 +6,8 @@ from __future__ import annotations
 import pandas as pd
 
 from credito.contracts.pandera_backend import _REGRA_POR_COLUNA, _schema, construir_validador
-from credito.data.prepare import (
-    ALVO,
-    COLUNAS_SEM_REGRA_NOMEADA,
-    FEATURES,
-    limpar,
-    separar,
-)
+from credito.data.prepare import limpar, separar
+from credito.schema import ALVO, COLUNAS_SEM_REGRA_NOMEADA, FEATURES
 
 
 def _linha(**ajustes) -> dict:

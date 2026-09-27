@@ -14,8 +14,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from credito.data.prepare import ALVO, FEATURES
 from credito.model.train import TIPOS_DE_MODELO, carregar_modelo, salvar_modelo, treinar
+from credito.schema import ALVO, FEATURES
 
 
 @pytest.fixture

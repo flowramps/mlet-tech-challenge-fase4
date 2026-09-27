@@ -189,9 +189,9 @@ def test_nomes_de_regra_sao_subconjunto_de_regras():
     assert nomes_usados <= nomes_declarados
 
 
-def test_constantes_compartilhadas_vem_todas_de_data_prepare():
-    # As cinco constantes que limpeza e contrato dividem moram em `data.prepare`. Vir de lá
-    # não é preferência de estilo: é o que faz "procure a constante onde ela é definida"
+def test_constantes_compartilhadas_vem_todas_de_schema():
+    # As cinco constantes que limpeza e contrato dividem moram em `credito.schema`. Vir de
+    # lá não é preferência de estilo: é o que faz "procure a constante onde ela é definida"
     # dar sempre no mesmo lugar. `DEBT_RATIO_MAXIMO` chegava aqui reexportada por
     # `contracts.rules` — mesmo valor, rota diferente, e a sugestão errada de que a
     # constante pertencesse ao módulo de regras. Nenhuma asserção sobre o valor pegaria
@@ -212,7 +212,7 @@ def test_constantes_compartilhadas_vem_todas_de_data_prepare():
     }
 
     assert compartilhadas <= set(origem)
-    assert {origem[nome] for nome in compartilhadas} == {"credito.data.prepare"}
+    assert {origem[nome] for nome in compartilhadas} == {"credito.schema"}
 
 
 def test_coluna_sem_regra_de_negocio_reporta_campo_invalido():
