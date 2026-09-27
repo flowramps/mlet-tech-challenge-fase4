@@ -107,9 +107,10 @@ def test_severidade_do_gate_considera_toda_a_janela_nao_so_o_ultimo_lote():
 
 
 def _familia_com_um_pico_isolado(p_valor_do_pico: float) -> list[DriftReport]:
-    """Quatro lotes de três features cada (m=12): onze combinações estáveis e sem sinal
-    algum (p-valor alto), e uma única combinação com PSI crítico cujo p-valor é o
-    parâmetro do teste — para variar só essa peça e observar o efeito da correção."""
+    """Quatro lotes de três features cada: dentro do lote `mes_00`, duas combinações
+    estáveis e sem sinal algum (p-valor alto) mais uma com PSI crítico cujo p-valor é o
+    parâmetro do teste. A correção roda por lote (ver `drift/gate.py`), então a família
+    relevante para o pico é só o seu próprio lote (m=3), não os quatro lotes juntos."""
     relatorios = []
     for indice_lote in range(4):
         nome_lote = f"mes_{indice_lote:02d}"
@@ -125,11 +126,12 @@ def _familia_com_um_pico_isolado(p_valor_do_pico: float) -> list[DriftReport]:
 
 def test_bh_derruba_severidade_de_pico_isolado_que_nao_sobrevive_a_correcao():
     # p=0,04 é "significativo" pelo teste de KS não corrigido (0,04 < 0,05) — é
-    # exatamente o falso positivo que a correção existe para pegar quando há outras 11
-    # comparações na mesma família. Sem a correção (rank por rank, alfa=0,05 aplicado a
-    # cada p-valor isoladamente) esta feature ficaria CRITICO; com BH sobre a família de
-    # 12, o rank 1 (o próprio p=0,04, o menor da família) exige p <= 1/12 * 0,05 =
-    # 0,004166 para ser rejeitado, e 0,04 fica muito acima disso — nada é rejeitado.
+    # exatamente o falso positivo que a correção existe para pegar quando há outras duas
+    # comparações no mesmo lote. Sem a correção (rank por rank, alfa=0,05 aplicado a cada
+    # p-valor isoladamente) esta feature ficaria CRITICO; com BH sobre a família do
+    # PRÓPRIO lote (m=3: DebtRatio 0,04, age ~0,5, MonthlyIncome ~0,6), o rank 1 (o
+    # próprio p=0,04, o menor do lote) exige p <= 1/3 * 0,05 = 0,016667 para ser
+    # rejeitado, e 0,04 fica acima disso — nada é rejeitado neste lote.
     relatorios = _familia_com_um_pico_isolado(0.04)
 
     gate = avaliar_gate(relatorios)
@@ -142,14 +144,56 @@ def test_bh_derruba_severidade_de_pico_isolado_que_nao_sobrevive_a_correcao():
 
 
 def test_bh_preserva_sinal_forte_mesmo_apos_correcao():
-    # Mesma família de 12, mas o pico tem p-valor minúsculo (1e-8): mesmo com o limiar
-    # mais rigoroso da família inteira (rank 1: p <= 0,004166), 1e-8 passa com folga. A
+    # Mesmo lote de três features, mas o pico tem p-valor minúsculo (1e-8): mesmo com o
+    # limiar do próprio lote (rank 1: p <= 0,016667, m=3), 1e-8 passa com folga. A
     # correção reduz poder, não elimina sinal genuíno.
     relatorios = _familia_com_um_pico_isolado(1e-8)
 
     gate = avaliar_gate(relatorios)
 
     debt_ratio = next(c for c in gate.cruzamentos if c.feature == "DebtRatio")
+    assert debt_ratio.primeiro_lote_critico == "mes_00"
+    assert gate.severidade is Severidade.CRITICO
+
+
+def test_correcao_e_por_lote_nao_pela_janela_inteira():
+    """A propriedade que a revisão exigiu tornar explícita: a família de
+    Benjamini-Hochberg é o LOTE, não a janela inteira que o gate recebe — decisão
+    inferencial, não só de forma. Um monitor real decide um lote de cada vez, e a
+    decisão sobre o lote 1 só pode usar o que existia quando o lote 1 chegou.
+
+    `DebtRatio` no `mes_00` tem PSI crítico (0,50) e p=0,04. Sozinho no seu próprio lote
+    (m=1, nenhuma outra feature medida nesse lote), o limiar do único rank é o próprio
+    alfa (0,05) — 0,04 <= 0,05 é rejeitado sem ressalva, e a severidade permanece
+    CRITICO. Cinco lotes SEGUINTES, cada um com dez features estáveis e sem sinal
+    (p-valor alto), não têm nenhum efeito sobre essa decisão, porque a correção do
+    `mes_00` nunca vê os p-valores de lotes que ainda não existiam quando `mes_00` foi
+    classificado.
+
+    Sob correção AGRUPADA (pooled — a implementação anterior a esta revisão), esses
+    mesmos cinquenta p-valores de ruído entrariam na família do `mes_00`, o `m` subiria
+    de 1 para 51, o limiar do rank 1 encolheria de 0,05 para 1/51*0,05 ≈ 0,00098, e
+    0,04 > 0,00098 rebaixaria `DebtRatio` para ESTAVEL — usando informação de cinco
+    lotes que, na linha do tempo real, ainda não tinham acontecido. Este teste fixa a
+    implementação correta (por lote) e é reproduzido como mutação no relatório desta
+    tarefa, revertendo para pooled e confirmando que ele fica vermelho.
+    """
+    lote_com_sinal = _lote("mes_00", _feature("DebtRatio", 0.50, 0.04))
+    lotes_de_ruido = [
+        _lote(
+            f"mes_{indice:02d}",
+            *[
+                _feature(f"ruido_{indice}_{posicao}", 0.01, 0.5 + posicao * 0.01)
+                for posicao in range(10)
+            ],
+        )
+        for indice in range(1, 6)
+    ]
+
+    gate = avaliar_gate([lote_com_sinal, *lotes_de_ruido])
+
+    debt_ratio = next(c for c in gate.cruzamentos if c.feature == "DebtRatio")
+    assert debt_ratio.severidade_final is Severidade.CRITICO
     assert debt_ratio.primeiro_lote_critico == "mes_00"
     assert gate.severidade is Severidade.CRITICO
 
@@ -340,17 +384,26 @@ def test_resumo_diz_recuperou_quando_volta_a_estavel_depois_de_atencao():
     assert "recuperou" in gate.resumo
 
 
-def test_resumo_traz_a_nota_de_diagnostico_com_os_numeros_medidos_da_atribuicao_causal():
+def test_resumo_traz_a_nota_diagnostica_sem_citar_numeros_do_campeao():
     # A armadilha que este texto existe para evitar: um leitor que visse só a tabela de
-    # PSI concluiria que a feature mais barulhenta é o problema mais urgente. A
-    # atribuição causal por intervenção mediu o oposto — as duas features de PSI mais
-    # alto do projeto respondem por 3,1% da queda de AUC-ROC; o concept drift, que PSI
-    # de feature não enxerga, responde por 48,0% sozinho.
+    # PSI concluiria que a feature mais barulhenta é o problema mais urgente. Mas o gate
+    # não tem acesso ao campeão publicado nem ao dado real (nenhum teste desta suíte
+    # toca rede ou dataset) — citar aqui um número específico da atribuição causal seria
+    # o gate afirmando uma medição que ele nunca fez, e um retreino do campeão tornaria
+    # esse número obsoleto sem que nada nesta suíte notasse. O aviso é qualitativo:
+    # aponta para onde a medição real mora, sem repeti-la.
     gate = GateDeDrift(severidade=Severidade.ESTAVEL, alfa=0.05, cruzamentos=())
 
-    assert "3,1%" in gate.resumo
-    assert "48,0%" in gate.resumo
-    assert "diagnóstico" in gate.resumo.lower()
+    resumo = gate.resumo
+    assert "diagnóstico" in resumo.lower()
+    assert "atribuir_degradacao" in resumo
+    assert "degradacao_por_lote" in resumo
+    # Nenhum número específico da decomposição causal pode vazar para o texto emitido —
+    # regressão explícita contra o que a revisão desta tarefa pegou.
+    assert "3,1%" not in resumo
+    assert "48,0%" not in resumo
+    assert "0,268" not in resumo
+    assert "0,503" not in resumo
 
 
 # --- CruzamentoDeFeature é um dataclass simples, sem regra escondida --------------------

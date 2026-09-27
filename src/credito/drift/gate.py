@@ -22,20 +22,28 @@ uma comparação de texto.
 `DriftDeFeature.severidade` (Tarefa 4) já é travada por `classificar(psi_divergencia)` e
 por isso este módulo não pode — nem deveria — reescrever essa severidade. O que ele faz é
 computar uma severidade EFETIVA por par lote x feature: a severidade original quando o teste
-de KS da mesma feature sobrevive à correção de múltiplos testes, rebaixada para
-`ESTAVEL` quando não sobrevive. PSI mede o TAMANHO do deslocamento; KS testa se ele é
-estatisticamente distinguível de acaso amostral, e com dez features por lote e seis lotes
-consolidados aqui de uma vez (sessenta comparações), rodar cada teste a alfa=0,05 isolado
-produz, em expectativa, ~3 falsos positivos (cada comparação isolada erra a 5% de chance;
-60 * 0,05 = 3) — relatar isso como "três features sofreram drift" seria o erro estatístico
-elementar que `benjamini_hochberg` (`drift/calibration.py`) existe para evitar. A correção
-roda sobre a família INTEIRA que este gate recebe de uma vez (todo `relatorios`, não um
-lote isolado): o gate é por natureza um passo de consolidação — o brief pede a decisão
-"dos 6 lotes", não uma decisão a cada lote que chega —, e por isso o momento em que a
-família inteira existe é também o momento certo de corrigir por ela inteira. A alternativa
-(corrigir lote a lote, família de dez) preservaria mais poder por lote às custas de nunca
-enxergar a família real de sessenta; como este módulo só é chamado quando os seis lotes já
-existem, não há razão operacional para essa perda.
+de KS da mesma feature, dentro do PRÓPRIO lote, sobrevive à correção de múltiplos testes,
+rebaixada para `ESTAVEL` quando não sobrevive. PSI mede o TAMANHO do deslocamento; KS testa
+se ele é estatisticamente distinguível de acaso amostral, e rodar dez testes por lote a
+alfa=0,05 cada, sem correção, infla a chance de ao menos um falso positivo POR LOTE bem
+acima de 0,05 (e, ao longo de seis lotes — sessenta comparações no total —, produz em
+expectativa ~3 falsos positivos na janela inteira) — relatar isso como "três features
+sofreram drift" seria o erro estatístico elementar que `benjamini_hochberg`
+(`drift/calibration.py`) existe para evitar.
+
+**A família de correção é o LOTE, não a janela inteira que este gate recebe.** Cada lote
+roda sua própria chamada de `benjamini_hochberg`, com sua própria família (só as features
+medidas NAQUELE lote), independente dos demais — não uma família única com todos os
+`relatorios` achatados juntos. A razão não é só de forma: é inferencial. Um monitor de
+produção decide um lote de cada vez, e a decisão sobre o lote 1 só pode usar o que existia
+quando o lote 1 chegou — corrigir sobre a janela inteira usaria o p-valor do lote 6 (que
+ainda não existe no momento em que o lote 1 precisa de uma decisão) para classificar o
+lote 1, um vazamento de informação do futuro para o passado que uma correção por lote não
+comete. Pooling também é estritamente mais conservador sempre que os lotes adicionais só
+contribuem ruído (p-valores altos): aumentar o tamanho da família sem aumentar o número de
+sinais verdadeiros só encolhe o limiar de cada rank, nunca o alarga — o que esconderia
+justamente o drift silencioso e precoce que é a narrativa central desta etapa, exatamente
+onde a narrativa mais precisa que ele apareça.
 
 A severidade original só pode ser REBAIXADA pela correção, nunca promovida: uma feature
 com PSI baixo (`ESTAVEL` por `classificar`) e um p-valor de KS minúsculo continua
@@ -53,21 +61,20 @@ recuperou antes do fim da janela continua tendo acontecido, e esconder isso atr�
 estado final do último lote seria a mesma armadilha que `DriftReport.severidade_maxima`
 (Tarefa 4) já resolve dentro de um único lote — aqui só se estende a mesma regra a vários.
 
-**Drift de feature é diagnóstico, não o alarme.** A atribuição causal por intervenção
-(`credito.drift.causal.atribuir_degradacao`), medida contra o campeão real desta etapa,
-decompôs a queda de AUC-ROC do campeão (0,2079) em: renda isolada 0,0017 (0,8%), dívida
-isolada 0,0047 (2,3%), atraso isolado 0,0142 (6,8%), concept drift isolado 0,0998 (48,0%)
-e um termo de interação de 0,0876 (42,1%). As duas features de maior PSI deste projeto —
-renda (0,268) e dívida (0,503) — respondem juntas por só 3,1% da degradação; o concept
-drift, que PSI de feature não enxerga porque desloca P(y|X) sem mover P(X), responde por
-quase metade sozinho. Um leitor que visse só a tabela de PSI concluiria, ao contrário do
-medido, que a feature mais barulhenta é o problema mais urgente. `GateDeDrift.resumo`
-carrega essa ressalva embutida em vez de deixá-la só num comentário que ninguém é
-obrigado a ler junto do relatório — o gate não recalcula nem importa a degradação (isso
-seria acoplar este módulo a `calibration.degradacao_por_lote` e a `causal.atribuir_degradacao`,
-que dependem do campeão publicado e de dado real, dois insumos que este módulo,
-propositalmente, não exige para decidir sobre drift), mas nomeia onde a resposta de fato
-mora.
+**Drift de feature é diagnóstico, não o alarme.** PSI e KS medem o deslocamento da
+distribuição de entrada (P(X)); não medem, por si, quanto esse deslocamento custa ao
+campeão. A atribuição causal por intervenção (`credito.drift.causal.atribuir_degradacao`)
+existe precisamente para medir esse custo — isolando quanto cada variável desloca o
+desempenho quando as demais ficam fixas —, e mediu, contra o campeão real desta etapa, que
+a feature de maior PSI não é a que mais move a degradação (a decomposição está registrada
+no relatório dessa tarefa, não repetida aqui). Um leitor que visse só a tabela de PSI seria
+levado a concluir o oposto. `GateDeDrift.resumo` carrega essa ressalva qualitativa
+embutida (ver `_NOTA_DIAGNOSTICO`), para que a advertência viaje com o relatório mesmo
+para quem nunca abriu este docstring — deliberadamente SEM os números: este gate não tem
+acesso ao campeão publicado nem ao dado real (nenhum teste desta suíte toca rede ou
+dataset), e citar aqui um número que só `atribuir_degradacao`/`degradacao_por_lote` têm
+como medir seria o gate afirmando uma medição que ele nunca fez — e que um retreino do
+campeão tornaria silenciosamente obsoleta, sem que nada nesta suíte notasse.
 """
 
 from __future__ import annotations
@@ -77,7 +84,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from credito.drift.base import DriftDeFeature, DriftReport, Severidade
+from credito.drift.base import DriftReport, Severidade
 from credito.drift.calibration import benjamini_hochberg
 
 _MENSAGENS: dict[Severidade, str] = {
@@ -86,21 +93,22 @@ _MENSAGENS: dict[Severidade, str] = {
     Severidade.CRITICO: "alerta crítico — recomenda-se avaliar retreino do modelo",
 }
 
-# Números medidos por `credito.drift.causal.atribuir_degradacao` contra o campeão real
-# (ver o docstring do módulo) — citados aqui, não recalculados, porque este gate não tem
-# acesso ao campeão nem ao dado real (nenhum teste desta suíte toca rede ou dataset).
+# Deliberadamente sem números: um valor fixo aqui (ex.: "renda responde por 0,8% da
+# degradação") apodreceria a cada retreino do campeão, cada mudança na região de concept
+# drift ou cada refresh do dataset, e nenhum teste desta suíte notaria a divergência —
+# pior ainda, o gate estaria emitindo, no seu próprio relatório, uma medição que ele nunca
+# fez (não tem acesso ao campeão nem ao dado real). Os números reais moram em
+# `credito.drift.causal.atribuir_degradacao` e em
+# `credito.drift.calibration.degradacao_por_lote` — quem compõe o relatório final com os
+# dois lado a lado é a orquestração, não este gate.
 _NOTA_DIAGNOSTICO = (
-    "Nota: PSI e KS medem deslocamento de distribuição (P(X)), não o custo desse "
-    "deslocamento para o campeão. A atribuição causal por intervenção "
-    "(credito.drift.causal.atribuir_degradacao), medida contra o campeão real, decompôs "
-    "a queda de AUC-ROC em renda isolada 0,8%, dívida isolada 2,3%, atraso isolado 6,8%, "
-    "concept drift isolado 48,0% e interação 42,1% — as duas features de maior PSI deste "
-    "projeto (renda 0,268, dívida 0,503) respondem juntas por só 3,1% da degradação. Este "
-    "relatório é diagnóstico: aponta ONDE a distribuição se moveu, não QUANTO isso custou "
-    "ao modelo — a feature de PSI mais alto não é, por isso, a causa mais provável da "
-    "degradação. Essa resposta está em credito.drift.calibration.degradacao_por_lote (a "
-    "consequência medida) e em credito.drift.causal.atribuir_degradacao (a decomposição "
-    "por variável), não neste PSI."
+    "Nota: PSI e KS medem o deslocamento da distribuição de entrada (P(X)), não o custo "
+    "desse deslocamento para o campeão. Este relatório é diagnóstico: aponta ONDE a "
+    "distribuição se moveu, não QUANTO isso custou ao modelo — e a feature de PSI mais "
+    "alto não é, por isso, a causa mais provável da degradação. Quem mede o custo real é "
+    "credito.drift.causal.atribuir_degradacao (decomposição por variável, por "
+    "intervenção) e credito.drift.calibration.degradacao_por_lote (a consequência "
+    "agregada por lote)."
 )
 
 
@@ -149,8 +157,9 @@ def _narrar_cruzamento(cruzamento: CruzamentoDeFeature) -> str | None:
 class GateDeDrift:
     """O desfecho consolidado de `avaliar_gate`: uma `Severidade` (o veredito, sempre
     lido como enum — ver o docstring do módulo sobre por que nunca é texto), o `alfa`
-    usado para corrigir os p-valores de KS da família inteira, e um `CruzamentoDeFeature`
-    por feature vista em qualquer lote da janela."""
+    usado para corrigir os p-valores de KS de cada lote (a correção roda por lote, não
+    sobre a janela inteira — ver o docstring do módulo), e um `CruzamentoDeFeature` por
+    feature vista em qualquer lote da janela."""
 
     severidade: Severidade
     alfa: float
@@ -205,31 +214,32 @@ def avaliar_gate(relatorios: Sequence[DriftReport], *, alfa: float = 0.05) -> Ga
     lhe entrega. Sem essa ordem, "primeiro cruzamento" não tem sentido — inverter a
     entrada inverteria qual cruzamento conta como "primeiro".
 
-    Levanta `ValueError` só quando `relatorios` está vazio — não há família de p-valores
-    para corrigir nem lote nenhum para consolidar, o mesmo tipo de estado inválido que
-    `DriftReport.__post_init__` já rejeita um nível abaixo (um relatório sem nenhuma
-    feature). Qualquer severidade de resultado, incluindo `CRITICO`, volta como valor
-    lido — nunca como exceção (ver o docstring do módulo).
+    Levanta `ValueError` só quando `relatorios` está vazio — não há lote nenhum para
+    consolidar, o mesmo tipo de estado inválido que `DriftReport.__post_init__` já
+    rejeita um nível abaixo (um relatório sem nenhuma feature). Qualquer severidade de
+    resultado, incluindo `CRITICO`, volta como valor lido — nunca como exceção (ver o
+    docstring do módulo).
     """
     if not relatorios:
         raise ValueError(
             "avaliar_gate precisa de ao menos um DriftReport — nenhum lote para consolidar"
         )
 
-    achatado: list[tuple[str, DriftDeFeature]] = [
-        (relatorio.lote, feature) for relatorio in relatorios for feature in relatorio.features
-    ]
-    p_valores = np.array([feature.ks_p_valor for _, feature in achatado])
-    significativos = benjamini_hochberg(p_valores, alfa=alfa)
-
     historico_por_feature: dict[str, list[tuple[str, Severidade]]] = {}
     severidades_efetivas: list[Severidade] = []
-    for (lote, feature), significativo in zip(achatado, significativos, strict=True):
-        # A correção só pode rebaixar: a severidade original já é o teto que `classificar`
-        # sustenta a partir do PSI (ver o docstring do módulo).
-        efetiva = feature.severidade if significativo else Severidade.ESTAVEL
-        historico_por_feature.setdefault(feature.feature, []).append((lote, efetiva))
-        severidades_efetivas.append(efetiva)
+    for relatorio in relatorios:
+        # A família de Benjamini-Hochberg é ESTE lote — só as features medidas nele —,
+        # não os `relatorios` inteiros achatados juntos (ver o docstring do módulo sobre
+        # por que corrigir pela janela inteira vazaria informação de lotes futuros para
+        # a decisão de um lote passado).
+        p_valores = np.array([feature.ks_p_valor for feature in relatorio.features])
+        significativos = benjamini_hochberg(p_valores, alfa=alfa)
+        for feature, significativo in zip(relatorio.features, significativos, strict=True):
+            # A correção só pode rebaixar: a severidade original já é o teto que
+            # `classificar` sustenta a partir do PSI (ver o docstring do módulo).
+            efetiva = feature.severidade if significativo else Severidade.ESTAVEL
+            historico_por_feature.setdefault(feature.feature, []).append((relatorio.lote, efetiva))
+            severidades_efetivas.append(efetiva)
 
     cruzamentos = tuple(
         CruzamentoDeFeature(
