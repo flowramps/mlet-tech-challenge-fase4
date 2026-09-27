@@ -55,10 +55,24 @@ class Settings(BaseSettings):
     # Convenção de risco de crédito para PSI. Não são medições deste dataset: são os cortes
     # que a indústria usa há décadas para decidir se um modelo de score ainda vale. Abaixo
     # de 0,10 a variação é ruído amostral no tamanho de lote que usamos; acima de 0,25 a
-    # distribuição mudou o bastante para a decisão do modelo não se sustentar. Uma etapa
-    # futura calibra a distribuição nula empírica do PSI neste dado (reamostrando a
-    # Referência) e compara contra estes cortes convencionais — o que pode confirmá-los ou
-    # revisá-los, mas essa medição ainda não existe, e este comentário não finge que existe.
+    # distribuição mudou o bastante para a decisão do modelo não se sustentar.
+    #
+    # A nula empírica do PSI neste dado JÁ FOI MEDIDA — `credito.drift.calibration.
+    # distribuicao_nula_psi`, com a tabela das dez features publicada no README. Rodada
+    # contra a Referência real (117.917 linhas), 10 bins, semente 42, 5.000 reamostras por
+    # feature, em lotes do tamanho que o detector de fato vê (23.584 linhas): o pior p95
+    # entre as dez features é 0,001610 (`NumberRealEstateLoansOrLines`) e o pior p99 é
+    # 0,001978. Ou seja, `psi_atencao` está ~62x acima do PSI que o acaso produz no p95 e
+    # `psi_critico` ~126x acima do p99; em 50.000 medições sob a nula, o maior PSI que o
+    # acaso produziu foi 0,002714. Para este dado, com estes bins e este tamanho de lote,
+    # a convenção é conservadora por cerca de duas ordens de grandeza.
+    #
+    # E mesmo assim estes dois valores continuam sendo a convenção, não a medição: a nula
+    # medida não alimenta limiar nenhum no código. Isso é dívida declarada, com a razão
+    # escrita no README — cortar em 0,0016 transformaria variação amostral irrelevante em
+    # alarme diário, o que é pior que o problema. O que a medição mudou foi o status da
+    # escolha: a banda entre 0,0016 e 0,10 é margem de tolerância deliberada, não zona de
+    # incerteza estatística.
     psi_atencao: float = 0.10
     psi_critico: float = 0.25
 
