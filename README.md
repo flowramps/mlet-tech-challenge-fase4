@@ -512,6 +512,16 @@ diferentes.
 ser monotônica — a guarda contra um retreino do campeão ou uma atualização do dataset
 quebrarem a propriedade em silêncio, já que nenhum teste da suíte toca o arquivo real.
 
+O mesmo comando roda o **contraexperimento** que justifica a calibração da taxa de
+inversão do concept drift: com o dobro do valor calibrado, a AUC-PR para de cair e volta a
+subir a partir do mês 4 (mínimo 0,2988, mês 6 em 0,3149), porque a taxa de positivos do
+lote — o piso estrutural da métrica — sobe de 6,94% para 24,70% e domina a perda de
+ranking, enquanto a AUC-ROC, insensível à prevalência, segue caindo (0,8421 → 0,5783). É
+por isso que a constante não pode ser maior. Esses números viviam só num comentário de
+código, sem forma de regenerá-los por comando, e apodreceram em silêncio quando o gerador
+mudou; agora saem da mesma execução que valida a monotonicidade, e ela falha se a reversão
+deixar de acontecer.
+
 ### Onde a degradação nasce: atribuição causal por intervenção
 
 As três variáveis se deslocam **juntas**, no mesmo calendário. Em dado observacional nada
@@ -952,7 +962,7 @@ make help                 # lista tudo
 make lint                 # ruff check + ruff format --check
 make test                 # suíte com relatório de cobertura
 make demo-contrato        # mostra o contrato bloqueando um lote adulterado
-make verificar-degradacao # confere que o campeão degrada mês a mês, sem reverter
+make verificar-degradacao # degradação monotônica + o contraexperimento que a calibra
 ```
 
 Rodar `make train` uma segunda vez **não falha**: o retreino reproduz o incumbente, o gate
@@ -1010,7 +1020,7 @@ src/credito/
 
 src/credito/data/simulate.py   Os 6 lotes: 3 variáveis de data drift + 1 concept drift
 scripts/demo_contrato.py       Demonstração do bloqueio de ingestão
-scripts/verificar_degradacao.py  Guarda de monotonicidade da degradação do campeão
+scripts/verificar_degradacao.py  Guarda da monotonicidade e do contraexperimento que a calibra
 docs/model_card.md             Uso pretendido, métricas, limitações e riscos
 docs/images/                   O print do relatório de drift
 tests/                         Suíte espelhando a estrutura de src/

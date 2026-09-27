@@ -33,5 +33,5 @@ monitor:          ## Simula a produção e gera os relatórios de drift
 demo-contrato:    ## Demonstra o contrato bloqueando um lote defeituoso
 	poetry run python scripts/demo_contrato.py
 
-verificar-degradacao: ## Confere que o campeão degrada monotonicamente nos 6 meses simulados
+verificar-degradacao: ## Confere a degradação monotônica do campeão e a calibração que a sustenta
 	poetry run python scripts/verificar_degradacao.py

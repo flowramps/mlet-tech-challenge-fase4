@@ -108,19 +108,21 @@ _LIMIAR_DEBT_RATIO_REGIAO = 0.458121
 # histórico limpo) — o que muda, se a fração crescer demais, é a própria taxa de
 # positivos do lote, que arrasta esse piso para cima e pode superar a perda real de
 # ranking. Medido isolando o efeito: dobrando esta constante para 0,5 e rodando a
-# progressão inteira contra o campeão publicado e a partição de teste real, a AUC-ROC
-# (que mede só ranking, é insensível à prevalência) continua caindo mês a mês sem
-# nunca inverter (0,8421 → 0,5760, nunca abaixo de 0,5 — não é um ranking que se torna
-# anticorrelacionado), enquanto a AUC-PR cai e VOLTA A SUBIR a partir do mês 4 (0,2965 →
-# 0,3151), porque a taxa de positivos do lote passa de 6,94% para 24,78% no processo —
-# o piso subiu mais rápido do que a discriminação caiu. Com `_TAXA_MAXIMA_DE_INVERSAO`
-# em 0,25 (calibrado contra o mesmo campeão e a mesma partição), a taxa de positivos do
-# lote não passa de 15,82% no mês 6 e a AUC-PR cai nos seis meses sem reverter — medido,
-# não presumido, com folga: valores entre 0,15 e 0,35 preservam essa monotonicidade;
-# 0,25 fica no meio dessa faixa. `scripts/verificar_degradacao.py` (`make
-# verificar-degradacao`) reproduz esta medição sob demanda e falha se a monotonicidade
-# deixar de valer — para um retreino do campeão, uma mudança no limiar da região ou uma
-# atualização do dataset que a quebre silenciosamente.
+# progressão inteira contra o campeão publicado e a partição de teste real (23.584
+# linhas), a AUC-ROC (que mede só ranking, é insensível à prevalência) continua caindo mês
+# a mês sem nunca inverter (0,8421 → 0,5783, nunca abaixo de 0,5 — não é um ranking que se
+# torna anticorrelacionado), enquanto a AUC-PR cai até um mínimo no mês 4 (0,2988) e VOLTA
+# A SUBIR até o mês 6 (0,3149), porque a taxa de positivos do lote passa de 6,94% para
+# 24,70% no processo — o piso subiu mais rápido do que a discriminação caiu. Com
+# `_TAXA_MAXIMA_DE_INVERSAO` em 0,25 (calibrado contra o mesmo campeão e a mesma
+# partição), a taxa de positivos do lote não passa de 15,82% no mês 6 e a AUC-PR cai nos
+# seis meses sem reverter — medido, não presumido, com folga: valores entre 0,15 e 0,35
+# preservam essa monotonicidade (0,40 já não preserva); 0,25 fica no meio dessa faixa.
+# `scripts/verificar_degradacao.py` (`make verificar-degradacao`) reproduz AS DUAS METADES
+# desta medição sob demanda — a progressão com esta constante E o contraexperimento com
+# 0,5 — e falha se qualquer uma deixar de valer: se a monotonicidade quebrar (retreino do
+# campeão, mudança no limiar da região, atualização do dataset) ou se o contraexperimento
+# deixar de reverter, caso em que são estes números aqui que ficaram velhos.
 _TAXA_MAXIMA_DE_INVERSAO = 0.25
 
 
