@@ -438,6 +438,46 @@ def test_concept_drift_sozinho_nao_move_as_features(amostra):
     pd.testing.assert_frame_equal(lote[list(FEATURES)], amostra[list(FEATURES)])
 
 
+def test_concept_drift_precisa_vir_depois_do_drift_de_divida_e_de_atraso(amostra):
+    """A única parte da ORDEM de composição que é load-bearing — e o docstring de
+    `credito.drift.causal` depende dela para afirmar que o cenário "todos" reproduz o lote
+    simulado.
+
+    `aplicar_concept_drift` não é independente das outras: o segmento que ela inverte
+    (`_regiao_de_risco_emergente`) é lido do `DebtRatio` e das colunas de atraso — ou seja,
+    do resultado de `aplicar_drift_de_divida` e `aplicar_drift_de_atraso`. Rodá-la antes
+    delas seleciona outro conjunto de linhas e produz outro rótulo. Medido contra o dado
+    real (partição de teste, 23.584 linhas, e Referência inteira, 117.917, nos seis meses):
+    das 23 permutações não canônicas das quatro transformações, 16 mudam o lote — de 385 a
+    3.514 linhas na partição de teste — e as 7 que não mudam nada são exatamente aquelas em
+    que o concept drift continua por último.
+    """
+    k = 1.0
+    canonica = aplicar_concept_drift(
+        aplicar_drift_de_atraso(aplicar_drift_de_divida(amostra, k), k, seed=42), k, seed=43
+    )
+    concept_primeiro = aplicar_drift_de_atraso(
+        aplicar_drift_de_divida(aplicar_concept_drift(amostra, k, seed=43), k), k, seed=42
+    )
+
+    # As features saem idênticas (concept drift nunca as toca) — o que muda é quem foi
+    # invertido, e é o rótulo que carrega a diferença.
+    pd.testing.assert_frame_equal(canonica[list(FEATURES)], concept_primeiro[list(FEATURES)])
+    assert not canonica[ALVO].equals(concept_primeiro[ALVO])
+
+
+def test_divida_e_atraso_comutam_entre_si(amostra):
+    # O contraponto do teste acima, que delimita a afirmação em vez de exagerá-la: essas
+    # duas transformações tocam colunas disjuntas e nenhuma lê a coluna da outra, então
+    # trocá-las de posição não muda uma única linha. Afirmar que "a ordem inteira é
+    # load-bearing" seria mais forte do que a medição sustenta.
+    k = 1.0
+    divida_antes = aplicar_drift_de_atraso(aplicar_drift_de_divida(amostra, k), k, seed=42)
+    atraso_antes = aplicar_drift_de_divida(aplicar_drift_de_atraso(amostra, k, seed=42), k)
+
+    pd.testing.assert_frame_equal(divida_antes, atraso_antes)
+
+
 def test_simulacao_e_reprodutivel(amostra):
     primeira = simular_producao(amostra, meses=6, seed=42)
     segunda = simular_producao(amostra, meses=6, seed=42)
