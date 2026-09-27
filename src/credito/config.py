@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     # do recall do mesmo campeão no mesmo conjunto de teste, 0,6915, menos a margem.
     min_recall_positivo: float = 0.6415
 
+    # Convenção de risco de crédito para PSI. Não são medições deste dataset: são os cortes
+    # que a indústria usa há décadas para decidir se um modelo de score ainda vale. Abaixo
+    # de 0,10 a variação é ruído amostral no tamanho de lote que usamos; acima de 0,25 a
+    # distribuição mudou o bastante para a decisão do modelo não se sustentar. Uma etapa
+    # futura calibra a distribuição nula empírica do PSI neste dado (reamostrando a
+    # Referência) e compara contra estes cortes convencionais — o que pode confirmá-los ou
+    # revisá-los, mas essa medição ainda não existe, e este comentário não finge que existe.
+    psi_atencao: float = 0.10
+    psi_critico: float = 0.25
+
     @property
     def raw_dir(self) -> Path:
         return self.data_dir / "raw"
