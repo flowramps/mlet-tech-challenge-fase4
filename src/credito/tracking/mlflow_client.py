@@ -39,11 +39,13 @@ test_mlflow_client.py`) fixam os dois.
 **Nome de métrica é ponto-e-nível, nunca string livre.** `drift.psi.MonthlyIncome`, nunca
 "PSI da renda" — a mesma disciplina de cardinalidade controlada que manteve o middleware
 Prometheus de uma etapa anterior deste projeto sem explodir: um rótulo de métrica só pode
-vir de um conjunto FECHADO, nunca de entrada não controlada. Aqui o conjunto fechado é
-`credito.schema.FEATURES` (para `drift.psi.*`) e as três chaves que `sinais_do_lote`
-de fato devolve (para `proxy.*`) — `registrar_execucao` valida os dois contra esses
-conjuntos e levanta `ValueError` antes de abrir qualquer run se algo fugir deles, para que
-um nome de feature ou de proxy nunca vazado vire rótulo de métrica sem ninguém notar.
+vir de um conjunto FECHADO, nunca de entrada não controlada. Isto vale para as **três**
+famílias de métrica que este módulo grava, não só duas: `credito.schema.FEATURES` (para
+`drift.psi.*`), as três chaves que `sinais_do_lote` de fato devolve (para `proxy.*`), e
+`credito.model.evaluate.METRICAS_GLOBAIS` — as chaves que `avaliar` de fato devolve (para
+`campeao.*`). `registrar_execucao` valida as três contra esses conjuntos e levanta
+`ValueError` antes de abrir qualquer run se algo fugir deles, para que um nome de feature,
+de proxy ou de métrica de campeão nunca vazado vire rótulo de métrica sem ninguém notar.
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ from mlflow.tracking import MlflowClient
 from credito.config import Settings
 from credito.drift.base import DriftReport
 from credito.drift.gate import GateDeDrift
+from credito.model.evaluate import METRICAS_GLOBAIS
 from credito.schema import FEATURES
 
 # `credito.pipeline.monitoring.executar_monitoramento` nomeia cada lote simulado
@@ -72,6 +75,13 @@ _PADRAO_LOTE = re.compile(r"^mes_(\d+)$")
 _PROXIES_CONHECIDOS = frozenset({"confianca_media", "taxa_de_aprovacao", "psi_do_score"})
 
 _FEATURES_CONHECIDAS = frozenset(FEATURES)
+
+# Importado de `credito.model.evaluate`, não restatado aqui — o conjunto fechado que
+# autoriza um nome de métrica `campeao.*`, a mesma disciplina que `_FEATURES_CONHECIDAS` e
+# `_PROXIES_CONHECIDOS` já aplicam. `test_metricas_globais_cobre_exatamente_as_chaves_de_
+# avaliar` (em `tests/model/test_evaluate.py`) tranca que `METRICAS_GLOBAIS` nunca fique
+# defasado do que `avaliar` de fato devolve.
+_METRICAS_CAMPEAO_CONHECIDAS = frozenset(METRICAS_GLOBAIS)
 
 
 def passo_do_lote(lote: str) -> int:
@@ -105,6 +115,21 @@ def parametros_da_execucao(settings: Settings, *, seed: int, meses: int) -> dict
         "min_auc_pr": settings.min_auc_pr,
         "min_recall_positivo": settings.min_recall_positivo,
     }
+
+
+def _validar_metricas_campeao(
+    metricas_do_campeao_por_lote: Mapping[str, Mapping[str, float]],
+) -> None:
+    for lote, metricas in metricas_do_campeao_por_lote.items():
+        passo_do_lote(lote)
+        for nome in metricas:
+            if nome not in _METRICAS_CAMPEAO_CONHECIDAS:
+                raise ValueError(
+                    f"métrica de campeão {nome!r} (lote {lote!r}) não está entre as "
+                    f"chaves que credito.model.evaluate.avaliar devolve "
+                    f"({sorted(_METRICAS_CAMPEAO_CONHECIDAS)}) — nome de métrica de "
+                    "campeão só pode vir desse conjunto fechado"
+                )
 
 
 def _validar_features(drift_por_lote: Sequence[DriftReport]) -> None:
@@ -160,15 +185,15 @@ def registrar_execucao(
     """Registra uma execução completa do pipeline de monitoramento como um run do MLflow
     e devolve o `run_id`.
 
-    Valida nomes de feature e de proxy ANTES de abrir o run (e antes mesmo de apontar o
-    `tracking_uri`): um nome fora do conjunto fechado é erro do chamador, e levantar
-    depois de já ter criado um run deixaria um run parcial (só parâmetros, sem métrica)
-    no backend — pior que falhar cedo sem escrever nada.
+    Valida nomes de métrica de campeão, de feature e de proxy ANTES de abrir o run (e
+    antes mesmo de apontar o `tracking_uri`): um nome fora do conjunto fechado
+    correspondente é erro do chamador, e levantar depois de já ter criado um run deixaria
+    um run parcial (só parâmetros, sem métrica) no backend — pior que falhar cedo sem
+    escrever nada.
     """
+    _validar_metricas_campeao(metricas_do_campeao_por_lote)
     _validar_features(drift_por_lote)
     _validar_proxies(proxies_por_lote)
-    for lote in metricas_do_campeao_por_lote:
-        passo_do_lote(lote)
 
     mlflow.set_tracking_uri(tracking_uri)
     _preparar_experimento(experimento, artifact_location)

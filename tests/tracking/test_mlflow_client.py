@@ -299,3 +299,27 @@ def test_registrar_execucao_rejeita_proxy_fora_do_conjunto_conhecido(tmp_path):
     client = MlflowClient(tracking_uri=_uri(tmp_path))
     experimento = client.get_experiment_by_name("teste-proxy-invalido")
     assert experimento is None
+
+
+def test_registrar_execucao_rejeita_metrica_de_campeao_fora_de_metricas_globais(tmp_path):
+    gate = avaliar_gate([DriftReport(lote="mes_01", features=(_feature("age", 0.01),))])
+
+    with pytest.raises(ValueError, match="avaliar"):
+        registrar_execucao(
+            tracking_uri=_uri(tmp_path),
+            experimento="teste-metrica-campeao-invalida",
+            parametros={},
+            metricas_do_campeao_por_lote={
+                "mes_01": {"nome_completamente_livre_do_usuario_123": 0.5}
+            },
+            drift_por_lote=[],
+            proxies_por_lote={},
+            gate=gate,
+            artifact_location=str(tmp_path / "artefatos"),
+        )
+
+    # A mesma garantia dos dois testes acima: a validação roda ANTES de abrir o run —
+    # nenhum run parcial fica para trás.
+    client = MlflowClient(tracking_uri=_uri(tmp_path))
+    experimento = client.get_experiment_by_name("teste-metrica-campeao-invalida")
+    assert experimento is None

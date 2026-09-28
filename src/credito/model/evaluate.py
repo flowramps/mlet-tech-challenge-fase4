@@ -46,6 +46,24 @@ def _probabilidades(modelo: Any, frame: pd.DataFrame) -> np.ndarray:
     return modelo.predict_proba(frame[list(FEATURES)])[:, 1]
 
 
+# As chaves que `avaliar` de fato devolve — conjunto fechado, não uma lista solta: é o que
+# `credito.tracking.mlflow_client` importa para validar nome de métrica `campeao.*` antes
+# de abrir um run do MLflow, a mesma disciplina de cardinalidade controlada que já vale
+# para `credito.schema.FEATURES` (nome de métrica nunca vem de entrada não controlada).
+# `tests/model/test_evaluate.py::test_metricas_globais_cobre_exatamente_as_chaves_de_avaliar`
+# tranca que esta tupla nunca fique defasada do que `avaliar` de fato devolve.
+METRICAS_GLOBAIS: tuple[str, ...] = (
+    "auc_pr",
+    "auc_roc",
+    "recall_positivo",
+    "precisao_positiva",
+    "acuracia",
+    "taxa_de_positivos",
+    "limiar",
+    "n",
+)
+
+
 def avaliar(modelo: Any, frame: pd.DataFrame, *, limiar: float = 0.5) -> dict[str, float]:
     """Calcula as métricas globais do modelo sobre ``frame``."""
     verdadeiro = frame[ALVO].to_numpy()
