@@ -115,19 +115,24 @@ def sinais_do_lote(
     *,
     referencia: pd.DataFrame | None = None,
     limiar: float = LIMIAR_PADRAO,
+    bins: int = 10,
 ) -> dict[str, float]:
     """Os sinais observáveis de um lote, calculados só a partir de `FEATURES` e do que o
-    `modelo` devolve — nunca da coluna de rótulo (ver o teste
-    `test_modulo_nao_cita_a_coluna_alvo_em_lugar_nenhum`, que confere isso estaticamente
-    lendo o código-fonte deste módulo, e `test_sinais_do_lote_funciona_sem_a_coluna_alvo`,
-    que confere em execução).
+    `modelo` devolve — nunca da coluna de rótulo (ver
+    `tests/monitoring/test_proxies.py::test_pacote_monitoring_nao_cita_a_coluna_alvo_em_lugar_nenhum`,
+    que confere isso estaticamente para este módulo e para todo módulo que ele importar
+    de dentro de `credito.monitoring`, e `test_sinais_do_lote_funciona_sem_a_coluna_alvo`
+    / `test_sinais_do_lote_nao_le_features_extras_como_o_alvo`, que conferem em
+    execução).
 
     `confianca_media` e `taxa_de_aprovacao` só precisam do `lote`: sempre presentes.
     `psi_do_score` precisa de uma segunda distribuição de score para comparar — não existe
     "deslocamento" sem um "a partir de quê" —, e por isso só entra no resultado quando
     `referencia` é informada. Um chamador que só tem o lote corrente (ex.: o primeiro lote
     que um monitor recém-publicado processa, antes de ter uma Referência de score
-    calibrada) continua recebendo os outros dois sinais em vez de um erro.
+    calibrada) continua recebendo os outros dois sinais em vez de um erro. `bins` só
+    afeta `psi_do_score` (repassado sem alteração) — as outras duas métricas não têm
+    binning nenhum.
     """
     probabilidades = _probabilidades(modelo, lote)
     sinais: dict[str, float] = {
@@ -136,5 +141,5 @@ def sinais_do_lote(
     }
     if referencia is not None:
         probabilidades_referencia = _probabilidades(modelo, referencia)
-        sinais["psi_do_score"] = psi_do_score(probabilidades_referencia, probabilidades)
+        sinais["psi_do_score"] = psi_do_score(probabilidades_referencia, probabilidades, bins=bins)
     return sinais

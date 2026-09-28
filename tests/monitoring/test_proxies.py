@@ -1,16 +1,29 @@
 """Os quatro sinais que um monitor de produção consegue calcular sem rótulo.
 
-`test_sinais_do_lote_funciona_sem_a_coluna_alvo` e
-`test_modulo_nao_cita_a_coluna_alvo_em_lugar_nenhum` são o par que prova a garantia
-central do módulo (ver `credito.monitoring.proxies`): o primeiro prova em tempo de
-execução que um lote sem `ALVO` não quebra nada; o segundo prova estaticamente que nenhuma
-função do módulo sequer importou ou citou o nome da coluna — as duas provas juntas cobrem
-tanto "não precisou" quanto "não teria como", que uma prova sozinha não cobriria.
+Três provas da garantia central do módulo, cada uma cobrindo o que as outras deixam
+passar:
+
+- `test_sinais_do_lote_funciona_sem_a_coluna_alvo` prova em execução que um lote sem a
+  coluna de rótulo não quebra nada.
+- `test_sinais_do_lote_nao_le_features_extras_como_o_alvo` prova em execução, de forma
+  mais forte, que a presença da coluna não muda nada (não é só "não quebra", é "é
+  ignorada").
+- `test_pacote_monitoring_nao_cita_a_coluna_alvo_em_lugar_nenhum` prova estaticamente que
+  nem este módulo nem qualquer módulo que ele importe de dentro de `credito.monitoring`
+  cita o nome ou o valor do rótulo.
+
+Nenhuma das duas primeiras pega um leak sem efeito observável (ex.: uma leitura
+descartada, feita só para telemetria ou log) — só a terceira pega isso, e só dentro da
+fronteira do próprio pacote (ver o docstring de `_fontes_do_pacote` sobre exatamente o
+que fica de fora dessa cobertura).
 """
 
 from __future__ import annotations
 
+import ast
+import importlib
 import inspect
+from types import ModuleType
 
 import numpy as np
 import pandas as pd
@@ -26,6 +39,8 @@ from credito.monitoring.proxies import (
 from credito.schema import ALVO, FEATURES
 
 SEED = 11
+
+PACOTE_MONITORING = "credito.monitoring"
 
 
 class _ModeloFixo:
@@ -271,6 +286,50 @@ def test_sinais_do_lote_com_referencia_inclui_psi_do_score():
     assert sinais["psi_do_score"] > 0.25
 
 
+def test_sinais_do_lote_repassa_bins_para_psi_do_score():
+    # Mesma razão de test_psi_do_score_repassa_bins_para_psi, um nível acima: bins
+    # precisa chegar até psi_do_score através de sinais_do_lote, não só existir como
+    # parâmetro que sinais_do_lote aceita e ignora.
+    coluna = "RevolvingUtilizationOfUnsecuredLines"
+    gerador = np.random.default_rng(SEED)
+    referencia = _lote(500, com_alvo=False)
+    referencia[coluna] = gerador.normal(0.4, 0.2, 500)
+    atual = _lote(500, com_alvo=False)
+    atual[coluna] = gerador.normal(0.5, 0.2, 500)
+    modelo = _ModeloPorFeature(coluna)
+
+    padrao = sinais_do_lote(modelo, atual, referencia=referencia)
+    poucos_bins = sinais_do_lote(modelo, atual, referencia=referencia, bins=3)
+
+    esperado_poucos_bins = psi_do_score(
+        referencia[coluna].to_numpy(), atual[coluna].to_numpy(), bins=3
+    )
+    assert poucos_bins["psi_do_score"] == pytest.approx(esperado_poucos_bins)
+    assert poucos_bins["psi_do_score"] != pytest.approx(padrao["psi_do_score"])
+
+
+def test_sinais_do_lote_lote_vazio_propaga_o_erro():
+    # Composição não testada é onde as guardas de confianca_media/taxa_de_aprovacao
+    # deixam de valer sem que ninguém note — este teste confere que sinais_do_lote
+    # herda a mesma falha explícita, em vez de, por exemplo, engolir o ValueError e
+    # devolver um dict incompleto.
+    lote = _lote(0, com_alvo=False)
+    modelo = _ModeloFixo(np.array([]))
+
+    with pytest.raises(ValueError):
+        sinais_do_lote(modelo, lote)
+
+
+def test_sinais_do_lote_uma_linha_funciona():
+    lote = _lote(1, com_alvo=False)
+    modelo = _ModeloFixo(np.array([0.3]))
+
+    sinais = sinais_do_lote(modelo, lote)
+
+    assert sinais["confianca_media"] == pytest.approx(0.7)  # max(0,3; 0,7)
+    assert sinais["taxa_de_aprovacao"] == pytest.approx(1.0)  # 0,3 < 0,5 (limiar padrão)
+
+
 def test_sinais_do_lote_sem_referencia_nao_inclui_psi_do_score():
     lote = _lote(3, com_alvo=False)
     modelo = _ModeloFixo(np.array([0.2, 0.4, 0.6]))
@@ -291,11 +350,109 @@ def test_sinais_do_lote_nao_le_features_extras_como_o_alvo():
     assert sinais_do_lote(modelo, com_alvo) == sinais_do_lote(modelo, sem_alvo)
 
 
-def test_modulo_nao_cita_a_coluna_alvo_em_lugar_nenhum():
-    # A garantia mecânica que o brief pede: nenhuma função deste módulo lê, importa ou
-    # sequer menciona a coluna de rótulo — nem pelo nome da constante, nem pelo valor
-    # literal que ela carrega.
-    codigo_fonte = inspect.getsource(proxies)
+def _fontes_do_pacote(modulo: ModuleType, *, vistos: set[str] | None = None) -> dict[str, str]:
+    """Código-fonte de `modulo` e de todo módulo que ele importa de dentro de
+    `credito.monitoring`, seguido recursivamente pela mesma regra.
 
-    assert "ALVO" not in codigo_fonte
-    assert ALVO not in codigo_fonte
+    **O que cobre:** um leak que atravesse uma fronteira de import DENTRO do próprio
+    pacote — o formato mais provável de uma regressão futura (alguém acrescenta um
+    helper novo em `credito/monitoring/`, ele cresce uma leitura do rótulo, e a chamada
+    a esse helper nunca aparece em `proxies.py`, só a importação dele). Resolve só
+    imports absolutos (`import credito.monitoring.x` / `from credito.monitoring import
+    x`) — a única forma usada em todo `src/` hoje (conferido: nenhum `from .` no
+    projeto).
+
+    **O que não cobre:** duas coisas, deliberadamente. Primeiro, um leak por uma
+    dependência FORA de `credito.monitoring` — por exemplo, se `credito.schema` ou
+    `credito.drift.statistics`, que este módulo já importa legitimamente, lessem o
+    rótulo por dentro. Caminhar o grafo de dependência inteiro pegaria isso, mas também
+    pegaria todo módulo do projeto que lê o rótulo por um motivo legítimo
+    (`credito.model.evaluate`, por exemplo) — o teste passaria a reprovar por leituras
+    que nada têm a ver com este módulo. Segundo, uma referência deliberadamente
+    ofuscada para escapar de um `in` textual (ex.: `getattr(schema, "AL" + "VO")` em vez
+    de `schema.ALVO`) — esta é uma checagem textual, não uma análise de fluxo de dados,
+    e não tenta reconhecer ofuscação proposital. Cobre a leitura direta e o import
+    plano, que é a forma de uma regressão futura genuína (alguém acrescenta um helper e
+    ele lê o rótulo do jeito óbvio); não cobre alguém tentando ativamente enganá-la.
+    A fronteira do pacote é o ponto de corte deliberado para o primeiro caso; o segundo
+    é um limite estrutural de qualquer checagem sobre texto.
+    """
+    if vistos is None:
+        vistos = set()
+    nome = modulo.__name__
+    if nome in vistos:
+        return {}
+    vistos.add(nome)
+
+    try:
+        fonte = inspect.getsource(modulo)
+    except OSError:
+        # Um módulo sem código-fonte legível (o caso real: `credito/monitoring/
+        # __init__.py` é um arquivo vazio de propósito, e `inspect.getsource` levanta
+        # OSError em vez de devolver "" para um arquivo de zero bytes — verificado
+        # reproduzindo isso à mão). `from credito.monitoring import x` importa o
+        # PACOTE `credito.monitoring` além do submódulo `x`, então este caso acontece em
+        # toda chamada real desta função, não é uma borda hipotética. Um módulo sem
+        # fonte não tem como citar o rótulo, então contribuir "" é correto, não uma
+        # concessão.
+        fonte = ""
+    fontes = {nome: fonte}
+
+    nomes_importados: list[str] = []
+    for node in ast.walk(ast.parse(fonte)):
+        if isinstance(node, ast.Import):
+            nomes_importados.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            nomes_importados.append(node.module)
+            # `from credito.monitoring import _telemetria` só dá `node.module ==
+            # "credito.monitoring"` — o pacote, não o submódulo `_telemetria` que de
+            # fato carrega o código a inspecionar. Sem também tentar `modulo.nome_do_
+            # alias`, a primeira versão deste guard silenciosamente NUNCA seguia um
+            # submódulo importado dessa forma (a forma usual em todo o projeto — ver
+            # `from credito.data.simulate import MESES, simular_producao` em
+            # `pipeline/monitoring.py`) — verificado construindo exatamente esse
+            # helper e vendo o guard continuar verde com o leak presente.
+            nomes_importados.extend(f"{node.module}.{alias.name}" for alias in node.names)
+
+    for nome_importado in nomes_importados:
+        dentro_do_pacote = nome_importado == PACOTE_MONITORING or nome_importado.startswith(
+            PACOTE_MONITORING + "."
+        )
+        if not dentro_do_pacote:
+            continue
+        try:
+            submodulo = importlib.import_module(nome_importado)
+        except ImportError:
+            # O candidato "módulo.nome" pode não ser um submódulo — pode ser uma
+            # função, classe ou constante importada de dentro do próprio `modulo`
+            # (ex.: `psi_do_score` em `from credito.monitoring.proxies import
+            # psi_do_score`, se algum arquivo futuro fizer isso). Não é um módulo à
+            # parte para caminhar; o código dela já está na fonte de `node.module`,
+            # que este laço já processa separadamente.
+            continue
+        fontes.update(_fontes_do_pacote(submodulo, vistos=vistos))
+    return fontes
+
+
+def test_pacote_monitoring_nao_cita_a_coluna_alvo_em_lugar_nenhum():
+    """A garantia mecânica que o brief pede, estendida além de um único arquivo.
+
+    Uma versão anterior deste teste olhava só `inspect.getsource(proxies)` — e não
+    pegaria um leak que passasse por um helper interno ao pacote (ex.: um
+    `credito.monitoring._telemetria` que importasse `ALVO` de `credito.schema` e a
+    usasse para descartar a coluna do lote antes de prever, chamado a partir de
+    `_probabilidades` com o resultado descartado): o nome `ALVO` nunca apareceria em
+    `proxies.py`, só a importação do helper apareceria, e os testes de execução não
+    notariam porque essa leitura não teria efeito nenhum sobre o valor devolvido.
+    Verificado construindo exatamente esse helper e vendo este teste (na versão de
+    arquivo único) continuar verde — evidência no relatório da task.
+
+    `_fontes_do_pacote` fecha essa lacuna caminhando os imports internos ao pacote; ver
+    o docstring dela para o que continua fora do alcance — em particular, uma
+    referência deliberadamente ofuscada (`getattr(schema, "AL" + "VO")` em vez de
+    `schema.ALVO`) escaparia de qualquer checagem textual, transitiva ou não, e não é o
+    que este teste se propõe a pegar.
+    """
+    for nome_modulo, fonte in _fontes_do_pacote(proxies).items():
+        assert "ALVO" not in fonte, f"{nome_modulo} cita o nome ALVO"
+        assert ALVO not in fonte, f"{nome_modulo} cita o valor literal do rótulo"
