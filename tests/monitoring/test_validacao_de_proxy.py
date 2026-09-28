@@ -3,6 +3,13 @@
 rótulo; a verificação contra o campeão real e a partição de teste real é medição separada,
 reportada na task, não suíte automatizada (mesma convenção de `tests/drift/test_causal.py`
 e `tests/drift/test_calibration.py`: nenhum teste toca rede nem o arquivo real).
+
+Concordância de ORDEM (Spearman) e força do SINAL (magnitude) respondem perguntas
+diferentes — a revisão desta etapa mediu, no próprio run real, dois proxies exatamente
+empatados em `rho=±1,0` com magnitudes que discordam por medida (`variacao_relativa`
+favorece um, `passo_medio_absoluto` favorece o outro). Os testes abaixo cobrem as duas
+leituras separadamente, e cobrem o portão de significância (p-valor exato por permutação,
+não o intervalo de confiança fechado — que satura perto de `|rho|=1` independente de `n`).
 """
 
 from __future__ import annotations
@@ -18,10 +25,14 @@ from credito.drift.calibration import degradacao_por_lote
 from credito.model.evaluate import avaliar
 from credito.monitoring.proxies import sinais_do_lote
 from credito.monitoring.validacao_de_proxy import (
+    ALFA_SIGNIFICANCIA,
+    MagnitudeDoProxy,
     ResultadoCorrelacao,
     correlacao_spearman,
     correlacionar_proxies,
     escolher_alarme,
+    magnitude_do_proxy,
+    p_valor_exato_spearman,
     proxies_no_topo,
 )
 from credito.schema import ALVO, FEATURES
@@ -104,6 +115,114 @@ def modelo() -> _ModeloPorScore:
     return _ModeloPorScore()
 
 
+# --- p_valor_exato_spearman: exato por permutação completa, não a aproximação assintótica
+
+
+def test_p_valor_exato_spearman_n4_perfeito_bate_2_sobre_24():
+    # Só a identidade e a reversão total, entre as 4!=24 reordenações possíveis, produzem
+    # |rho|=1 — o número que a revisão desta etapa citou de forma independente (0,0833)
+    # como o p exato que um rho=1,0 perfeito sustenta com apenas 4 pontos.
+    x = np.array([1.0, 2.0, 3.0, 4.0])
+    y = x.copy()
+
+    assert p_valor_exato_spearman(x, y) == pytest.approx(2 / 24)
+
+
+def test_p_valor_exato_spearman_n6_perfeito_bate_2_sobre_720():
+    x = np.arange(6.0)
+    y = x.copy()
+
+    assert p_valor_exato_spearman(x, y) == pytest.approx(2 / 720)
+
+
+def test_p_valor_exato_spearman_e_menor_quanto_mais_extremo_o_rho():
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    y_perfeito = x.copy()
+    y_moderado = np.array([2.0, 1.0, 4.0, 3.0, 5.0])  # rho menor, não perfeito
+
+    p_perfeito = p_valor_exato_spearman(x, y_perfeito)
+    p_moderado = p_valor_exato_spearman(x, y_moderado)
+
+    assert p_perfeito < p_moderado
+
+
+def test_p_valor_exato_spearman_serie_constante_e_nan():
+    x = np.array([5.0] * 6)
+    y = np.arange(6.0)
+
+    assert math.isnan(p_valor_exato_spearman(x, y))
+
+
+def test_p_valor_exato_spearman_acima_do_limite_devolve_nan(monkeypatch):
+    import credito.monitoring.validacao_de_proxy as modulo
+
+    monkeypatch.setattr(modulo, "_N_MAXIMO_PARA_PERMUTACAO_EXATA", 3)
+    x = np.array([1.0, 2.0, 3.0, 4.0])  # n=4 > limite artificial de 3
+    y = x.copy()
+
+    assert math.isnan(p_valor_exato_spearman(x, y))
+
+
+def test_p_valor_exato_spearman_no_limite_exato_ainda_calcula(monkeypatch):
+    # Pino da borda: n == _N_MAXIMO_PARA_PERMUTACAO_EXATA precisa CALCULAR (não é "acima
+    # do limite"). Uma comparação `>=` em vez de `>` excluiria esse caso calado — só um
+    # teste que fixa n exatamente igual ao limite, ao lado do teste acima que fixa n
+    # exatamente um a mais, pega a troca de operador.
+    import credito.monitoring.validacao_de_proxy as modulo
+
+    monkeypatch.setattr(modulo, "_N_MAXIMO_PARA_PERMUTACAO_EXATA", 4)
+    x = np.array([1.0, 2.0, 3.0, 4.0])  # n=4 == limite artificial
+    y = x.copy()
+
+    assert p_valor_exato_spearman(x, y) == pytest.approx(2 / 24)
+
+
+# --- magnitude_do_proxy: a força do sinal, separada da concordância de ordem ------------
+
+
+def test_magnitude_do_proxy_calcula_variacao_e_passo_medio():
+    serie = np.array([0.10, 0.12, 0.15, 0.20])
+
+    magnitude = magnitude_do_proxy(serie)
+
+    assert magnitude.valor_inicial == pytest.approx(0.10)
+    assert magnitude.valor_final == pytest.approx(0.20)
+    assert magnitude.variacao_absoluta == pytest.approx(0.10)
+    assert magnitude.variacao_relativa == pytest.approx(1.0)  # dobrou: +100%
+    # passos: 0,02 / 0,03 / 0,05 -> média 0,0333...
+    assert magnitude.passo_medio_absoluto == pytest.approx((0.02 + 0.03 + 0.05) / 3)
+
+
+def test_magnitude_do_proxy_valor_inicial_zero_variacao_relativa_e_nan():
+    serie = np.array([0.0, 0.01, 0.02])
+
+    magnitude = magnitude_do_proxy(serie)
+
+    assert math.isnan(magnitude.variacao_relativa)
+    assert magnitude.variacao_absoluta == pytest.approx(0.02)  # o resto continua definido
+
+
+def test_magnitude_do_proxy_um_unico_ponto_levanta_erro():
+    with pytest.raises(ValueError):
+        magnitude_do_proxy(np.array([0.5]))
+
+
+def test_magnitude_do_proxy_passo_medio_nao_relativa_desempatam_diferente():
+    # O caso que motivou a correção: um proxy que sobe muito em TERMOS RELATIVOS a partir
+    # de uma base minúscula (psi_do_score no run real) pode ter um passo médio absoluto
+    # menor que um proxy que sobe pouco em termos relativos a partir de uma base maior
+    # (taxa_de_aprovacao no mesmo run) — as duas medidas de magnitude podem discordar sobre
+    # qual proxy "se move mais", e é exatamente por isso que elas são medidas separadas.
+    base_quase_zero = np.array([0.0013, 0.0048, 0.0107, 0.0142, 0.0220, 0.0291])
+    base_grande = np.array([0.7850, 0.7753, 0.7673, 0.7606, 0.7529, 0.7455])
+
+    mag_pequena = magnitude_do_proxy(base_quase_zero)
+    mag_grande = magnitude_do_proxy(base_grande)
+
+    assert abs(mag_pequena.variacao_relativa) > abs(mag_grande.variacao_relativa)
+    assert mag_pequena.passo_medio_absoluto < mag_grande.passo_medio_absoluto
+
+
 # --- correlacao_spearman: o intervalo, o uso de postos, e o caso degenerado -------------
 
 
@@ -136,6 +255,16 @@ def test_correlacao_spearman_bate_bit_a_bit_com_scipy():
     assert resultado.n == 6
 
 
+def test_correlacao_spearman_p_valor_exato_delega_para_p_valor_exato_spearman():
+    gerador = np.random.default_rng(SEED)
+    x = gerador.normal(size=6)
+    y = gerador.normal(size=6)
+
+    resultado = correlacao_spearman(x, y)
+
+    assert resultado.p_valor_exato == p_valor_exato_spearman(x, y)
+
+
 def test_correlacao_spearman_intervalo_bate_com_formula_de_bonett_wright():
     x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     y = np.array([2.0, 1.0, 4.0, 3.0, 6.0, 5.0])  # rho != ±1, n=6
@@ -165,6 +294,30 @@ def test_correlacao_spearman_rho_perfeito_nao_produz_intervalo_infinito():
     assert math.isfinite(resultado.intervalo_confianca[1])
 
 
+def test_correlacao_spearman_clip_do_rho_perfeito_usa_epsilon_de_1e_9():
+    # Pino do valor exato do clip (1e-9), não só "é finito" — a mutação que a revisão
+    # descreveu (clip para 1e-2) muda o intervalo de [0,99999999; 1,0] para [0,90; 1,0],
+    # e só um teste que recalcula o valor esperado de forma independente (não importando a
+    # constante do módulo) pega isso.
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    y = x.copy()  # rho = 1,0 exato, n=6
+
+    resultado = correlacao_spearman(x, y)
+
+    epsilon_esperado = 1e-9
+    z_esperado = np.arctanh(1 - epsilon_esperado)
+    erro_padrao_esperado = np.sqrt(1.06 / (6 - 3))
+    baixo_esperado = np.tanh(z_esperado - 1.959963984540054 * erro_padrao_esperado)
+    alto_esperado = np.tanh(z_esperado + 1.959963984540054 * erro_padrao_esperado)
+
+    assert resultado.intervalo_confianca[0] == pytest.approx(baixo_esperado, abs=1e-12)
+    assert resultado.intervalo_confianca[1] == pytest.approx(alto_esperado, abs=1e-12)
+    # A propriedade concreta que um epsilon 1e4 vezes maior (1e-5) já quebraria: o limite
+    # inferior fica a menos de 1e-6 de distância de 1,0 — bem mais apertado do que
+    # qualquer clip grosseiro produziria.
+    assert resultado.intervalo_confianca[0] > 1.0 - 1e-6
+
+
 def test_correlacao_spearman_serie_constante_e_nan_sem_lancar_warning():
     # `pyproject.toml` trata warning como erro: se a implementação chamasse
     # `scipy.stats.spearmanr` direto sobre uma série constante, o próprio
@@ -176,6 +329,7 @@ def test_correlacao_spearman_serie_constante_e_nan_sem_lancar_warning():
     resultado = correlacao_spearman(x, y)
 
     assert math.isnan(resultado.rho)
+    assert math.isnan(resultado.p_valor_exato)
     assert math.isnan(resultado.intervalo_confianca[0])
     assert math.isnan(resultado.intervalo_confianca[1])
 
@@ -273,17 +427,34 @@ def test_correlacoes_cobre_os_tres_proxies_e_os_dois_campos_de_degradacao(lotes,
             assert isinstance(valor, ResultadoCorrelacao)
 
 
+def test_correlacionar_proxies_magnitudes_bate_com_magnitude_do_proxy_direto(lotes, modelo):
+    resultado = correlacionar_proxies(lotes, modelo)
+
+    nomes_dos_lotes = resultado["lotes"]
+    serie_confianca = np.array(
+        [resultado["proxies_por_lote"][nome]["confianca_media"] for nome in nomes_dos_lotes]
+    )
+    esperado = magnitude_do_proxy(serie_confianca)
+
+    assert resultado["magnitudes"]["confianca_media"] == esperado
+    assert set(resultado["magnitudes"]) == {"psi_do_score", "confianca_media", "taxa_de_aprovacao"}
+    for magnitude in resultado["magnitudes"].values():
+        assert isinstance(magnitude, MagnitudeDoProxy)
+
+
 def test_correlacionar_proxies_repassa_limiar_para_taxa_de_aprovacao(lotes, modelo):
     padrao = correlacionar_proxies(lotes, modelo)
     limiar_baixo = correlacionar_proxies(lotes, modelo, limiar=0.01)
 
-    # limiar 0,01: quase ninguém tem score abaixo disso — a taxa de aprovação cai bem
-    # abaixo do que o limiar padrão (0,5) produz em qualquer lote com scores tipicamente
-    # acima de 0,01.
+    # limiar 0,01: quase ninguém tem score abaixo disso — a taxa de aprovação cai
+    # ESTRITAMENTE abaixo do que o limiar padrão (0,5) produz em todo lote com scores
+    # tipicamente acima de 0,01. Desigualdade estrita (não `<=`): um `limiar` ignorado por
+    # engano (sempre comparando contra 0,5) deixaria as duas rodadas idênticas, e só `<`
+    # nota a diferença — `<=` aceitaria esse bug calado, como aceitou antes desta correção.
     for nome in padrao["lotes"]:
         assert (
             limiar_baixo["proxies_por_lote"][nome]["taxa_de_aprovacao"]
-            <= padrao["proxies_por_lote"][nome]["taxa_de_aprovacao"]
+            < padrao["proxies_por_lote"][nome]["taxa_de_aprovacao"]
         )
 
 
@@ -297,76 +468,44 @@ def test_correlacionar_proxies_repassa_bins_para_psi_do_score(lotes, modelo):
     )
 
 
-# --- escolher_alarme: a recomendação honesta, inclusive quando ela é "nenhum proxy" -----
+# --- _significativos / proxies_no_topo: o portão é o p-valor EXATO, não o intervalo -----
 
 
-def _resultado(rho: float, intervalo: tuple[float, float]) -> ResultadoCorrelacao:
-    return ResultadoCorrelacao(rho=rho, p_valor=0.5, intervalo_confianca=intervalo, n=6)
+def _resultado(rho: float, p_valor_exato: float) -> ResultadoCorrelacao:
+    """Fixture de `ResultadoCorrelacao` para os testes de significância e desempate — só os
+    dois campos que `_significativos`/`proxies_no_topo`/`escolher_alarme` de fato leem
+    (`rho`, `p_valor_exato`) variam; os demais são valores neutros sem papel na decisão.
+    """
+    return ResultadoCorrelacao(
+        rho=rho, p_valor=0.5, p_valor_exato=p_valor_exato, intervalo_confianca=(0.0, 0.0), n=6
+    )
 
 
-def test_escolher_alarme_pega_o_maior_rho_absoluto_entre_os_significativos():
-    correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(0.90, (0.30, 0.99))},
-        "confianca_media": {"degradacao_auc_roc": _resultado(-0.60, (-0.95, 0.50))},  # cruza 0
-        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(0.70, (0.10, 0.95))},
-    }
+def test_significancia_usa_p_valor_exato_nao_o_intervalo_fechado():
+    # O caso que a revisão mediu: n=4 com rho perfeito produz um intervalo de confiança
+    # fechado que NÃO cruza zero (o clip perto de |rho|=1 satura, ver
+    # test_correlacao_spearman_clip_...), mas o p-valor exato (2/4!=0,0833) não é
+    # significativo a 5%. Um portão baseado no intervalo aceitaria este proxy; o portão
+    # correto (p_valor_exato) rejeita.
+    x = np.array([1.0, 2.0, 3.0, 4.0])
+    y = x.copy()
+    resultado_n4 = correlacao_spearman(x, y)
 
-    assert escolher_alarme(correlacoes, campo="degradacao_auc_roc") == "psi_do_score"
+    assert resultado_n4.p_valor_exato == pytest.approx(2 / 24)
+    assert resultado_n4.p_valor_exato > ALFA_SIGNIFICANCIA  # não deveria passar no portão
 
-
-def test_escolher_alarme_ignora_intervalo_que_cruza_zero_mesmo_com_rho_maior():
-    # taxa_de_aprovacao tem |rho| maior, mas o intervalo cruza zero — psi_do_score, com
-    # |rho| menor mas intervalo que não cruza zero, é o único elegível.
-    correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(0.55, (0.05, 0.85))},
-        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(0.80, (-0.10, 0.99))},
-    }
-
-    assert escolher_alarme(correlacoes, campo="degradacao_auc_roc") == "psi_do_score"
-
-
-def test_escolher_alarme_devolve_none_quando_nenhum_intervalo_exclui_zero():
-    correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(0.40, (-0.40, 0.90))},
-        "confianca_media": {"degradacao_auc_roc": _resultado(-0.30, (-0.85, 0.45))},
-    }
-
-    assert escolher_alarme(correlacoes, campo="degradacao_auc_roc") is None
-
-
-def test_escolher_alarme_ignora_correlacao_nan():
-    correlacoes = {
-        "psi_do_score": {
-            "degradacao_auc_roc": _resultado(float("nan"), (float("nan"), float("nan")))
-        },
-    }
-
-    assert escolher_alarme(correlacoes, campo="degradacao_auc_roc") is None
-
-
-def test_escolher_alarme_le_o_campo_pedido_nao_sempre_o_mesmo():
-    correlacoes = {
-        "psi_do_score": {
-            "degradacao_auc_roc": _resultado(0.10, (-0.50, 0.60)),  # cruza 0
-            "degradacao_lift_acima_do_piso": _resultado(0.85, (0.40, 0.97)),  # não cruza
-        },
-    }
-
-    assert escolher_alarme(correlacoes, campo="degradacao_auc_roc") is None
-    assert escolher_alarme(correlacoes, campo="degradacao_lift_acima_do_piso") == "psi_do_score"
-
-
-# --- proxies_no_topo: o empate que escolher_alarme, sozinho, esconderia -----------------
+    correlacoes = {"psi_do_score": {"degradacao_auc_roc": resultado_n4}}
+    assert proxies_no_topo(correlacoes, campo="degradacao_auc_roc") == ()
 
 
 def test_proxies_no_topo_devolve_todo_mundo_empatado_no_maior_rho_absoluto():
-    # psi_do_score (+1,0) e taxa_de_aprovacao (-1,0) têm o MESMO |rho| — um empate real,
-    # do tipo que a simulação monotônica desta etapa de fato produz (ver o docstring de
-    # `proxies_no_topo`). confianca_media fica de fora por ter |rho| menor.
+    # psi_do_score (+1,0) e taxa_de_aprovacao (-1,0) têm o MESMO |rho| e os dois são
+    # significativos — um empate real, do tipo que a simulação monotônica desta etapa de
+    # fato produz. confianca_media fica de fora por não ser significativo.
     correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, (0.90, 1.0))},
-        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, (-1.0, -0.90))},
-        "confianca_media": {"degradacao_auc_roc": _resultado(0.5, (0.05, 0.85))},
+        "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, 0.01)},
+        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, 0.01)},
+        "confianca_media": {"degradacao_auc_roc": _resultado(0.5, 0.30)},  # não significativo
     }
 
     assert proxies_no_topo(correlacoes, campo="degradacao_auc_roc") == (
@@ -377,8 +516,8 @@ def test_proxies_no_topo_devolve_todo_mundo_empatado_no_maior_rho_absoluto():
 
 def test_proxies_no_topo_sem_empate_devolve_um_unico_nome():
     correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(0.90, (0.30, 0.99))},
-        "confianca_media": {"degradacao_auc_roc": _resultado(0.50, (0.05, 0.85))},
+        "psi_do_score": {"degradacao_auc_roc": _resultado(0.90, 0.01)},
+        "confianca_media": {"degradacao_auc_roc": _resultado(0.50, 0.01)},
     }
 
     assert proxies_no_topo(correlacoes, campo="degradacao_auc_roc") == ("psi_do_score",)
@@ -386,20 +525,108 @@ def test_proxies_no_topo_sem_empate_devolve_um_unico_nome():
 
 def test_proxies_no_topo_vazio_quando_nenhum_e_significativo():
     correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(0.40, (-0.40, 0.90))},
+        "psi_do_score": {"degradacao_auc_roc": _resultado(0.99, 0.20)},  # p_valor_exato alto
     }
 
     assert proxies_no_topo(correlacoes, campo="degradacao_auc_roc") == ()
 
 
-def test_escolher_alarme_em_caso_de_empate_e_o_primeiro_de_proxies_no_topo():
-    # A promessa explícita do docstring de escolher_alarme: em empate, é o primeiro
-    # elemento alfabético de proxies_no_topo — não uma escolha independente por mérito.
+def test_proxies_no_topo_ignora_p_valor_exato_nan():
     correlacoes = {
-        "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, (0.90, 1.0))},
-        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, (-1.0, -0.90))},
+        "psi_do_score": {"degradacao_auc_roc": _resultado(float("nan"), float("nan"))},
     }
 
-    topo = proxies_no_topo(correlacoes, campo="degradacao_auc_roc")
-    assert len(topo) > 1  # a premissa do teste: precisa ser mesmo um empate
-    assert escolher_alarme(correlacoes, campo="degradacao_auc_roc") == topo[0]
+    assert proxies_no_topo(correlacoes, campo="degradacao_auc_roc") == ()
+
+
+# --- escolher_alarme: agora desempata por magnitude, nunca por acidente alfabético ------
+
+
+def _magnitude(passo_medio_absoluto: float) -> MagnitudeDoProxy:
+    return MagnitudeDoProxy(
+        valor_inicial=0.5,
+        valor_final=0.5,
+        variacao_absoluta=0.0,
+        variacao_relativa=0.0,
+        passo_medio_absoluto=passo_medio_absoluto,
+    )
+
+
+def test_escolher_alarme_sem_empate_devolve_o_unico_do_topo():
+    correlacoes = {
+        "psi_do_score": {"degradacao_auc_roc": _resultado(0.90, 0.01)},
+        "confianca_media": {"degradacao_auc_roc": _resultado(0.50, 0.01)},
+    }
+    magnitudes = {"psi_do_score": _magnitude(0.01), "confianca_media": _magnitude(0.01)}
+
+    assert escolher_alarme(correlacoes, magnitudes, campo="degradacao_auc_roc") == "psi_do_score"
+
+
+def test_escolher_alarme_devolve_none_quando_nenhum_e_significativo():
+    correlacoes = {
+        "psi_do_score": {"degradacao_auc_roc": _resultado(0.40, 0.50)},
+    }
+    magnitudes = {"psi_do_score": _magnitude(0.01)}
+
+    assert escolher_alarme(correlacoes, magnitudes, campo="degradacao_auc_roc") is None
+
+
+def test_escolher_alarme_desempata_empate_de_rho_pela_maior_magnitude():
+    # O caso que a revisão apontou como defeito: dois proxies empatados em |rho|=1,0
+    # significativo. A versão anterior devolvia o primeiro em ordem alfabética
+    # ("confianca_media") mesmo sendo, neste exemplo, o de MENOR magnitude — exatamente o
+    # padrão medido no run real (confianca_media tem o menor passo médio dos três).
+    correlacoes = {
+        "confianca_media": {"degradacao_auc_roc": _resultado(-1.0, 0.003)},
+        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, 0.003)},
+    }
+    magnitudes = {
+        "confianca_media": _magnitude(0.0033),
+        "taxa_de_aprovacao": _magnitude(0.0079),
+    }
+
+    assert (
+        escolher_alarme(correlacoes, magnitudes, campo="degradacao_auc_roc") == "taxa_de_aprovacao"
+    )
+
+
+def test_escolher_alarme_recusa_quando_magnitude_tambem_empata():
+    correlacoes = {
+        "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, 0.003)},
+        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, 0.003)},
+    }
+    magnitudes = {
+        "psi_do_score": _magnitude(0.0056),
+        "taxa_de_aprovacao": _magnitude(0.0056),  # empate exato de magnitude também
+    }
+
+    assert escolher_alarme(correlacoes, magnitudes, campo="degradacao_auc_roc") is None
+
+
+def test_escolher_alarme_le_o_campo_pedido_nao_sempre_o_mesmo():
+    correlacoes = {
+        "psi_do_score": {
+            "degradacao_auc_roc": _resultado(0.10, 0.80),  # não significativo
+            "degradacao_lift_acima_do_piso": _resultado(0.85, 0.01),  # significativo
+        },
+    }
+    magnitudes = {"psi_do_score": _magnitude(0.01)}
+
+    assert escolher_alarme(correlacoes, magnitudes, campo="degradacao_auc_roc") is None
+    assert (
+        escolher_alarme(correlacoes, magnitudes, campo="degradacao_lift_acima_do_piso")
+        == "psi_do_score"
+    )
+
+
+def test_escolher_alarme_no_run_sintetico_usa_magnitudes_de_correlacionar_proxies(lotes, modelo):
+    # Teste de integração: escolher_alarme alimentado pelo próprio retorno de
+    # correlacionar_proxies (correlações E magnitudes), não por fixtures isoladas — garante
+    # que os dois dicts têm as mesmas chaves e que a função não quebra com o formato real.
+    resultado = correlacionar_proxies(lotes, modelo)
+
+    alarme = escolher_alarme(
+        resultado["correlacoes"], resultado["magnitudes"], campo="degradacao_auc_roc"
+    )
+
+    assert alarme is None or alarme in resultado["magnitudes"]
