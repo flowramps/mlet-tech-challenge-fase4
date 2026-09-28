@@ -1,6 +1,6 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
-.PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao
+.PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao validar-proxies
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -35,3 +35,6 @@ demo-contrato:    ## Demonstra o contrato bloqueando um lote defeituoso
 
 verificar-degradacao: ## Confere a degradação monotônica do campeão e a calibração que a sustenta
 	poetry run python scripts/verificar_degradacao.py
+
+validar-proxies:  ## Mede quanto cada proxy sem rótulo antecipa a degradação real do campeão
+	poetry run python scripts/validar_proxies.py
