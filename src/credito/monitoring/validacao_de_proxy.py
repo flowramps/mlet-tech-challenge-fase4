@@ -44,8 +44,15 @@ satura antes de `tanh` conseguir refletir a diferença real de incerteza entre o
 Nenhum dos dois serve de portão de significância sozinho. `p_valor_exato_spearman` resolve
 isso enumerando as `n!` reordenações possíveis (720 para `n=6`, o caso real desta etapa) e
 contando a fração tão extrema quanto a observada — o mesmo raciocínio de um teste exato de
-permutação, sem aproximação nenhuma. É esse p-valor, não o intervalo, que `_significativos`
-usa para decidir se um proxy conta.
+permutação, sem aproximação nenhuma. Acima de `n=9` a enumeração completa deixa de ser
+viável (`n!` cresce fatorialmente); a função troca para uma estimativa por amostragem de
+Monte Carlo em vez de desistir e devolver `nan` — devolver `nan` ali já foi o comportamento
+de uma versão anterior, e `nan` é descartado como "não significativo" pelo mesmo portão que
+trataria um achado genuíno de ausência de correlação, então um `MESES` maior em
+`credito.data.simulate` teria invertido a conclusão da etapa em silêncio (ver o docstring de
+`p_valor_exato_spearman`). É esse p-valor — sempre um número de verdade, nunca `nan` por
+causa do tamanho de `n` —, não o intervalo, que `_significativos` usa para decidir se um
+proxy conta.
 
 **Este módulo tem acesso ao rótulo e é o único lugar do pacote `monitoring` que pode ter**
 — ao contrário de `proxies.py`, cujo próprio propósito é medir só o que um serviço de
@@ -89,10 +96,33 @@ _Z_95 = 1.959963984540054  # stats.norm.ppf(0.975) — os dois lados de 95% de c
 
 # `n!` permutações completas: 720 para o caso real desta etapa (seis lotes). Até `n=9`
 # (362.880 permutações) o cálculo vetorizado (ver `p_valor_exato_spearman`) roda em menos
-# de um segundo; acima disso o custo cresce fatorialmente e a função devolve `nan` em vez
-# de travar a suíte ou o script real — nenhum uso deste projeto passa de `n=6`
-# (`credito.data.simulate.MESES`).
+# de um segundo; acima disso o custo cresce fatorialmente e a função troca para a
+# estimativa por Monte Carlo (ver `_N_AMOSTRAS_MONTE_CARLO`) em vez de enumerar — nunca
+# devolve `nan` por causa do tamanho da amostra. Devolver `nan` acima deste corte já foi o
+# comportamento desta função numa versão anterior, e era ele mesmo um defeito do mesmo tipo
+# que este módulo existe para fechar: `nan` é descartado como "não significativo" por
+# `_significativos`, então um `MESES` maior em `credito.data.simulate` inverteria a
+# conclusão inteira da etapa (de "três proxies antecipam" para "nenhum antecipa") com MAIS
+# dado, e sem nenhum aviso de que o motivo foi o tamanho da amostra, não a ausência de
+# correlação — medido forçando `n=10` com um `rho` perfeito na versão anterior.
 _N_MAXIMO_PARA_PERMUTACAO_EXATA = 9
+
+# Tamanho da amostra de Monte Carlo acima do corte exato. Cada permutação sorteada é
+# independente das outras, então a estimativa é uma proporção binomial: seu erro-padrão é
+# `sqrt(p(1-p)/K)`. Em `p=ALFA_SIGNIFICANCIA=0,05` (o ponto onde a precisão mais importa,
+# perto da fronteira de decisão), `K=100.000` dá `SE ~ sqrt(0,05*0,95/100000) ~= 0,00069` —
+# um intervalo de 95% de largura ~0,0027 em torno do p estimado, preciso o bastante para
+# decidir o lado de `ALFA_SIGNIFICANCIA` na esmagadora maioria dos casos sem exigir minutos
+# de cálculo. `100.000` é literal de projeto (não uma medição deste dado), na mesma
+# categoria que `ALFA_SIGNIFICANCIA` abaixo.
+_N_AMOSTRAS_MONTE_CARLO = 100_000
+
+# Semente fixa para a amostragem de Monte Carlo — mesma convenção de
+# `credito.config.Settings.random_seed` (42): sem ela, o mesmo par `(x, y)` devolveria um
+# p-valor levemente diferente a cada chamada, o que tornaria `correlacao_spearman` não
+# determinística acima de `_N_MAXIMO_PARA_PERMUTACAO_EXATA` — inaceitável para um número que
+# entra num relatório de risco de crédito.
+_SEMENTE_MONTE_CARLO = 42
 
 # Corte de significância do p-valor exato por permutação — convenção estatística usual
 # (0,05), não uma medição deste dado, na mesma categoria que `psi_atencao`/`psi_critico`
@@ -120,32 +150,77 @@ class ResultadoCorrelacao(NamedTuple):
     n: int
 
 
+def _matriz_de_permutacoes_exatas(postos_y: np.ndarray) -> np.ndarray:
+    """Todas as `n!` reordenações de `postos_y`, uma por linha."""
+    return np.array(list(itertools.permutations(postos_y)))
+
+
+def _matriz_de_permutacoes_por_amostragem(postos_y: np.ndarray, *, n_amostras: int) -> np.ndarray:
+    """`n_amostras` reordenações de `postos_y` sorteadas uniformemente ao acaso, uma por
+    linha — a alternativa à enumeração completa quando `n!` é grande demais para enumerar
+    (ver `_N_MAXIMO_PARA_PERMUTACAO_EXATA`).
+
+    `argsort` de ruído uniforme independente por linha (`gerador.random((n_amostras, n))`)
+    é o truque padrão para sortear permutações uniformes vetorizado: a ordem dos valores
+    sorteados numa linha é ela mesma uniforme sobre as `n!` ordens possíveis, e `argsort`
+    devolve os ÍNDICES dessa ordem — que aplicados a `postos_y` (indexação por fantasia,
+    `postos_y[indices]`) produzem a reordenação. Evita um laço Python de
+    `gerador.permutation` chamado `n_amostras` vezes, que domina o tempo de execução para
+    `n_amostras=100.000` (medido: a versão vetorizada roda a amostragem inteira em ordem de
+    dezenas de milissegundos).
+    """
+    gerador = np.random.default_rng(_SEMENTE_MONTE_CARLO)
+    n = len(postos_y)
+    indices = np.argsort(gerador.random((n_amostras, n)), axis=1)
+    return postos_y[indices]
+
+
 def p_valor_exato_spearman(x: np.ndarray, y: np.ndarray) -> float:
-    """P-valor exato de Spearman por permutação completa das `n!` reordenações de `y`
-    contra a ordem fixa de `x` — a fração delas cujo `|rho|` é tão extremo quanto o
-    observado, sem nenhuma aproximação assintótica.
+    """P-valor de Spearman por permutação — exato por enumeração completa das `n!`
+    reordenações de `y` contra a ordem fixa de `x` quando `n <=
+    _N_MAXIMO_PARA_PERMUTACAO_EXATA`, estimado por Monte Carlo (`_N_AMOSTRAS_MONTE_CARLO`
+    reordenações sorteadas ao acaso, ver `_matriz_de_permutacoes_por_amostragem`) acima
+    disso — em ambos os casos, a fração de reordenações cujo `|rho|` é tão extremo quanto o
+    observado, sem a aproximação assintótica que `scipy.stats.spearmanr` usa.
 
     Correlação de Spearman é a correlação de Pearson entre os POSTOS (`scipy.stats.
     rankdata`, empates pela média — a mesma convenção que `spearmanr` usa por baixo).
     Permutar `y` só reordena seus postos; o próprio conjunto de postos (e portanto a média
     e o desvio-padrão deles) não muda — só a covariância com os postos fixos de `x` muda a
-    cada permutação. Por isso o laço abaixo não recalcula `rankdata`/correlação do zero a
-    cada uma das `n!` vezes: constrói a matriz de todas as permutações dos postos de `y` de
-    uma vez (`itertools.permutations`) e calcula as `n!` covariâncias com uma única
-    multiplicação de matriz — o que faz `n=6` (720 permutações) rodar em milissegundos, não
-    o método que chamaria `spearmanr` 720 vezes.
+    cada permutação. Por isso a função não recalcula `rankdata`/correlação do zero a cada
+    reordenação: constrói a matriz de reordenações dos postos de `y` de uma vez e calcula
+    todas as covariâncias com uma única multiplicação de matriz.
 
-    Devolve `nan` quando `x` ou `y` são constantes (a correlação não está definida — mesma
-    razão de `correlacao_spearman`) ou quando `n > _N_MAXIMO_PARA_PERMUTACAO_EXATA`: acima
-    disso o custo cresce fatorialmente e travaria a suíte ou o script real antes de
-    terminar. Nenhum uso deste projeto passa de `n=6`.
+    **Por que Monte Carlo, e não `nan`, acima do corte exato.** Uma versão anterior desta
+    função devolvia `nan` para `n > _N_MAXIMO_PARA_PERMUTACAO_EXATA`, e `_significativos`
+    descarta `nan` como "não significativo" — o mesmo texto que um achado genuíno de
+    "nenhuma correlação" produziria. Isso significava que aumentar `MESES` em
+    `credito.data.simulate` (hoje 6, bem abaixo do corte) inverteria silenciosamente a
+    conclusão inteira desta etapa assim que ultrapassasse `_N_MAXIMO_PARA_PERMUTACAO_EXATA`
+    — com MAIS dado, não menos —, e nenhum número no relatório diria que o motivo foi o
+    tamanho da amostra cruzar um corte de implementação, não a ausência de correlação. A
+    estimativa por Monte Carlo fecha essa lacuna: sempre devolve um p-valor de verdade,
+    dentro da margem de erro que `_N_AMOSTRAS_MONTE_CARLO` documenta.
+
+    A contagem de reordenações "tão extremas quanto" usa a correção `+1` no numerador e no
+    denominador quando a amostragem é por Monte Carlo (não quando é exata): sem ela, uma
+    amostra aleatória que por acaso não incluísse nenhuma reordenação tão extrema quanto a
+    observada devolveria um p-valor de exatamente `0,0` — que pareceria "impossível sob a
+    hipótese nula" mesmo quando só significa "não amostrado" —, a mesma armadilha do
+    p-valor assintótico que `scipy.stats.spearmanr` diverge para `0,0` perto de `|rho|=1`.
+    A correção (Davison & Hinkley, 1997; North, Curtis & Sham, 2002) trata a própria
+    observação como se fosse ela mesma uma reordenação válida da família amostrada, o que
+    garante um p-valor sempre `> 0`. A enumeração exata não precisa da correção porque a
+    identidade (a própria observação) já está entre as `n!` reordenações enumeradas, e
+    conta por si só.
+
+    Devolve `nan` só quando `x` ou `y` são constantes — a correlação não está definida
+    nesse caso, mesma razão de `correlacao_spearman` —, nunca por causa do tamanho de `n`.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     n = len(x)
 
-    if n > _N_MAXIMO_PARA_PERMUTACAO_EXATA:
-        return float("nan")
     if np.unique(x).size < 2 or np.unique(y).size < 2:
         return float("nan")
 
@@ -154,21 +229,33 @@ def p_valor_exato_spearman(x: np.ndarray, y: np.ndarray) -> float:
 
     media_x, media_y = postos_x.mean(), postos_y.mean()
     desvio_x = postos_x.std()
-    desvio_y = postos_y.std()  # invariante a qualquer permutação de postos_y
+    desvio_y = postos_y.std()  # invariante a qualquer permutação/amostragem de postos_y
 
     rho_observado = float(
         (np.mean(postos_x * postos_y) - media_x * media_y) / (desvio_x * desvio_y)
     )
 
-    todas_as_permutacoes = np.array(list(itertools.permutations(postos_y)))
-    covariancias = todas_as_permutacoes @ postos_x / n - media_x * media_y
+    exato = n <= _N_MAXIMO_PARA_PERMUTACAO_EXATA
+    matriz_de_permutacoes = (
+        _matriz_de_permutacoes_exatas(postos_y)
+        if exato
+        else _matriz_de_permutacoes_por_amostragem(postos_y, n_amostras=_N_AMOSTRAS_MONTE_CARLO)
+    )
+    covariancias = matriz_de_permutacoes @ postos_x / n - media_x * media_y
     rhos_por_permutacao = covariancias / (desvio_x * desvio_y)
 
     # Tolerância de ponto flutuante: sem ela, a própria permutação identidade (que
     # reproduz `rho_observado` bit a bit em teoria) poderia ficar de fora da contagem por
-    # erro de arredondamento na soma vetorizada, subestimando o p-valor exato.
+    # erro de arredondamento na soma vetorizada, subestimando o p-valor.
     tao_extremos = np.abs(rhos_por_permutacao) >= abs(rho_observado) - 1e-9
-    return float(np.count_nonzero(tao_extremos) / len(rhos_por_permutacao))
+    contagem = np.count_nonzero(tao_extremos)
+    total = len(rhos_por_permutacao)
+
+    if exato:
+        return float(contagem / total)
+    # Correção +1/+1 de Monte Carlo (ver o docstring acima): só se aplica à amostragem,
+    # nunca à enumeração exata, onde a identidade já garante contagem >= 1 por construção.
+    return float((contagem + 1) / (total + 1))
 
 
 def correlacao_spearman(x: np.ndarray, y: np.ndarray) -> ResultadoCorrelacao:
@@ -249,11 +336,25 @@ class MagnitudeDoProxy(NamedTuple):
     chega a 0,03 "cresce 30 vezes" sem que isso signifique que ele ficou operacionalmente
     perceptível: `psi_do_score` no regime desta etapa é exatamente esse caso, ver o
     relatório da task). `passo_medio_absoluto` — a média do módulo do passo mês a mês — não
-    tem essa instabilidade e é a medida que `escolher_alarme` usa para desempatar quando
-    `rho` sozinho não distingue: está sempre numa escala comparável entre proxies que vivem
-    no mesmo intervalo (`[0, 1]`, o caso dos três proxies de `monitoring.proxies`), ao
-    contrário da variação relativa, que qualquer proxy com valor de partida perto de zero
-    infla artificialmente.
+    tem essa instabilidade específica (não depende de dividir por um valor de partida perto
+    de zero) e é a medida que `escolher_alarme` usa para desempatar quando `rho` sozinho não
+    distingue.
+
+    **Isso não a torna livre de limitação.** `confianca_media` e `taxa_de_aprovacao` são
+    frações de verdade, matematicamente presas a `[0, 1]`; `psi_do_score` é uma divergência
+    (Population Stability Index) sem teto matemático — nada a impede de crescer bem além de
+    1 sob deslocamento extremo. Comparar `passo_medio_absoluto` entre os três continua
+    sendo comparar unidades diferentes, mesmo sem a instabilidade de dividir por zero: sob
+    um regime de drift mais severo que o desta etapa, `psi_do_score` poderia vencer o
+    desempate por magnitude por causa da unidade em que PSI tende a crescer, não porque o
+    sinal seja de fato mais forte — o mesmo tipo de acidente que motivou trocar a escolha
+    alfabética de `escolher_alarme` por um critério medido. Neste run isso não acontece
+    (`psi_do_score` não passa de 0,03 em nenhum mês, ver o relatório da task), e
+    `passo_medio_absoluto` continua sendo a melhor das duas medidas disponíveis aqui — mas
+    uma calibração formal de limiar por proxy (a mesma tarefa que precisa definir um
+    limiar operacional para `taxa_de_aprovacao`) precisaria normalizar cada proxy pela
+    própria escala ou convenção antes de comparar magnitude ENTRE proxies de natureza
+    diferente, não só ao longo do tempo do mesmo proxy.
     """
 
     valor_inicial: float

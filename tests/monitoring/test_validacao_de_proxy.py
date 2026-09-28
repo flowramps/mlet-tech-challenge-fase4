@@ -153,21 +153,12 @@ def test_p_valor_exato_spearman_serie_constante_e_nan():
     assert math.isnan(p_valor_exato_spearman(x, y))
 
 
-def test_p_valor_exato_spearman_acima_do_limite_devolve_nan(monkeypatch):
-    import credito.monitoring.validacao_de_proxy as modulo
-
-    monkeypatch.setattr(modulo, "_N_MAXIMO_PARA_PERMUTACAO_EXATA", 3)
-    x = np.array([1.0, 2.0, 3.0, 4.0])  # n=4 > limite artificial de 3
-    y = x.copy()
-
-    assert math.isnan(p_valor_exato_spearman(x, y))
-
-
 def test_p_valor_exato_spearman_no_limite_exato_ainda_calcula(monkeypatch):
-    # Pino da borda: n == _N_MAXIMO_PARA_PERMUTACAO_EXATA precisa CALCULAR (não é "acima
-    # do limite"). Uma comparação `>=` em vez de `>` excluiria esse caso calado — só um
-    # teste que fixa n exatamente igual ao limite, ao lado do teste acima que fixa n
-    # exatamente um a mais, pega a troca de operador.
+    # Pino da borda: n == _N_MAXIMO_PARA_PERMUTACAO_EXATA precisa CALCULAR pela enumeração
+    # exata (não é "acima do limite", que troca para Monte Carlo). Uma comparação `>=` em
+    # vez de `>` empurraria este caso para a amostragem calada — só um teste que fixa n
+    # exatamente igual ao limite, ao lado do teste abaixo que fixa n exatamente um a mais,
+    # pega a troca de operador.
     import credito.monitoring.validacao_de_proxy as modulo
 
     monkeypatch.setattr(modulo, "_N_MAXIMO_PARA_PERMUTACAO_EXATA", 4)
@@ -175,6 +166,75 @@ def test_p_valor_exato_spearman_no_limite_exato_ainda_calcula(monkeypatch):
     y = x.copy()
 
     assert p_valor_exato_spearman(x, y) == pytest.approx(2 / 24)
+
+
+# --- acima do limite exato: Monte Carlo, nunca nan (ver o docstring do módulo) ----------
+
+
+def test_p_valor_exato_spearman_acima_do_limite_e_significativo_para_correlacao_perfeita():
+    # A regressão que a revisão pediu para fechar: `n=10` já é maior que
+    # `_N_MAXIMO_PARA_PERMUTACAO_EXATA` (9) com a constante real do módulo (sem
+    # monkeypatch). Uma versão anterior devolvia `nan` aqui, e `_significativos` descartava
+    # `nan` como "não significativo" — o mesmo texto de um achado genuíno de ausência de
+    # correlação. Isso teria feito um `MESES` maior em `credito.data.simulate` inverter a
+    # conclusão da etapa em silêncio.
+    x = np.arange(10.0)
+    y = x.copy()  # rho = 1,0 exato, n=10
+
+    p = p_valor_exato_spearman(x, y)
+
+    assert not math.isnan(p)
+    assert p < ALFA_SIGNIFICANCIA
+
+
+def test_p_valor_exato_spearman_monte_carlo_bate_o_exato_dentro_da_margem(monkeypatch):
+    # n=6 tem resposta exata conhecida (2/720=0,002778); forçar o corte para baixo de 6
+    # empurra o MESMO caso para a amostragem de Monte Carlo — a estimativa precisa
+    # convergir para perto do valor exato, dentro de uma margem generosa frente ao
+    # erro-padrão teórico (~0,00017 em p=0,0028, K=100.000).
+    import credito.monitoring.validacao_de_proxy as modulo
+
+    monkeypatch.setattr(modulo, "_N_MAXIMO_PARA_PERMUTACAO_EXATA", 5)
+    x = np.arange(6.0)
+    y = x.copy()
+
+    estimado = p_valor_exato_spearman(x, y)
+
+    assert estimado == pytest.approx(2 / 720, abs=0.01)
+
+
+def test_p_valor_exato_spearman_monte_carlo_e_deterministico(monkeypatch):
+    # A mesma entrada precisa devolver o MESMO p-valor em toda chamada — uma amostragem sem
+    # semente fixa tornaria correlacao_spearman não determinística acima do corte exato,
+    # inaceitável para um número que entra num relatório de risco de crédito.
+    import credito.monitoring.validacao_de_proxy as modulo
+
+    monkeypatch.setattr(modulo, "_N_MAXIMO_PARA_PERMUTACAO_EXATA", 5)
+    x = np.arange(6.0)
+    gerador = np.random.default_rng(3)
+    y = gerador.normal(size=6)
+
+    primeiro = p_valor_exato_spearman(x, y)
+    segundo = p_valor_exato_spearman(x, y)
+
+    assert primeiro == segundo
+
+
+def test_p_valor_exato_spearman_monte_carlo_correcao_evita_p_zero():
+    # n=10 com rho perfeito é um evento raríssimo sob a nula (2 em 10!=3.628.800
+    # reordenações) — bem abaixo da resolução de K=100.000 amostras, então a contagem
+    # crua quase certamente seria zero. Sem a correção +1/+1 (ver o docstring da função),
+    # isso devolveria p=0,0 — indistinguível de "impossível sob a nula", quando só
+    # significa "não amostrado". Com a correção, o menor p possível é 1/(K+1) > 0.
+    import credito.monitoring.validacao_de_proxy as modulo
+
+    x = np.arange(10.0)
+    y = x.copy()
+
+    p = p_valor_exato_spearman(x, y)
+
+    assert p > 0.0
+    assert p >= 1 / (modulo._N_AMOSTRAS_MONTE_CARLO + 1) - 1e-12
 
 
 # --- magnitude_do_proxy: a força do sinal, separada da concordância de ordem ------------
@@ -590,6 +650,40 @@ def test_escolher_alarme_desempata_empate_de_rho_pela_maior_magnitude():
     )
 
 
+def test_escolher_alarme_desempata_por_passo_medio_mesmo_quando_variacao_relativa_discorda():
+    # O ponto do Minor que a revisão levantou: as duas medidas de MagnitudeDoProxy podem
+    # apontar para vencedores DIFERENTES (exatamente o que o run real mediu — ver o
+    # relatório da task). Este teste usa MagnitudeDoProxy completo, não o atalho
+    # `_magnitude()` (que zera variacao_relativa em toda entrada e não seria capaz de
+    # expor esta divergência), com os números reais do run: psi_do_score vence em variação
+    # relativa (+2080%) mas perde em passo médio absoluto (0,0056 < 0,0079) para
+    # taxa_de_aprovacao. escolher_alarme precisa seguir passo_medio_absoluto.
+    correlacoes = {
+        "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, 0.003)},
+        "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, 0.003)},
+    }
+    magnitudes = {
+        "psi_do_score": MagnitudeDoProxy(
+            valor_inicial=0.0013,
+            valor_final=0.0291,
+            variacao_absoluta=0.0278,
+            variacao_relativa=20.8,  # vence em variação relativa
+            passo_medio_absoluto=0.0056,
+        ),
+        "taxa_de_aprovacao": MagnitudeDoProxy(
+            valor_inicial=0.7850,
+            valor_final=0.7455,
+            variacao_absoluta=-0.0394,
+            variacao_relativa=-0.05,
+            passo_medio_absoluto=0.0079,  # vence em passo médio absoluto
+        ),
+    }
+
+    assert (
+        escolher_alarme(correlacoes, magnitudes, campo="degradacao_auc_roc") == "taxa_de_aprovacao"
+    )
+
+
 def test_escolher_alarme_recusa_quando_magnitude_tambem_empata():
     correlacoes = {
         "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, 0.003)},
@@ -623,10 +717,27 @@ def test_escolher_alarme_no_run_sintetico_usa_magnitudes_de_correlacionar_proxie
     # Teste de integração: escolher_alarme alimentado pelo próprio retorno de
     # correlacionar_proxies (correlações E magnitudes), não por fixtures isoladas — garante
     # que os dois dicts têm as mesmas chaves e que a função não quebra com o formato real.
+    # A asserção é falseável: se houver alarme, ele precisa ser EXATAMENTE o proxy de maior
+    # passo_medio_absoluto entre os empatados em proxies_no_topo — recalculado aqui de
+    # forma independente, não só "é uma chave válida de magnitudes" (que qualquer proxy,
+    # certo ou errado, sempre satisfaria).
     resultado = correlacionar_proxies(lotes, modelo)
 
-    alarme = escolher_alarme(
-        resultado["correlacoes"], resultado["magnitudes"], campo="degradacao_auc_roc"
-    )
+    campo = "degradacao_auc_roc"
+    topo = proxies_no_topo(resultado["correlacoes"], campo=campo)
+    alarme = escolher_alarme(resultado["correlacoes"], resultado["magnitudes"], campo=campo)
 
-    assert alarme is None or alarme in resultado["magnitudes"]
+    if not topo:
+        assert alarme is None
+    else:
+        esperado = max(topo, key=lambda nome: resultado["magnitudes"][nome].passo_medio_absoluto)
+        maior_passo = resultado["magnitudes"][esperado].passo_medio_absoluto
+        empatados_na_magnitude = [
+            nome
+            for nome in topo
+            if resultado["magnitudes"][nome].passo_medio_absoluto == maior_passo
+        ]
+        if len(empatados_na_magnitude) > 1:
+            assert alarme is None
+        else:
+            assert alarme == esperado
