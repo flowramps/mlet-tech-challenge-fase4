@@ -4354,7 +4354,7 @@ version = "0.26.0"
 description = "Python client for the Prometheus monitoring system."
 optional = false
 python-versions = ">=3.9"
-groups = ["notebooks"]
+groups = ["main", "notebooks"]
 files = [
     {file = "prometheus_client-0.26.0-py3-none-any.whl", hash = "sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6"},
     {file = "prometheus_client-0.26.0.tar.gz", hash = "sha256:04a91bcf94e2cf74a44a1a874d651a2e853ed354b6e822f3b7487751465d5c2b"},
@@ -7347,4 +7347,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "88e805afb92b8554d24bc23c357b31be30b4334090b511f7e264c0c1fa6ac102"
+content-hash = "47cf141d0a51fc2f3194c11ef9b667f95de999b4414d58ba92927d3b6e33fafb"
