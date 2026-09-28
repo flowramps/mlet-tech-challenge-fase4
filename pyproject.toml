@@ -105,4 +105,22 @@ filterwarnings = [
     # isso o colon vira "\x3a" em regex (o mesmo caractere, sem o literal que confundiria
     # o parser).
     "ignore:ks_2samp\\x3a Exact calculation unsuccessful\\. Switching to method=asymp\\.:RuntimeWarning",
+    # 2026-09-27: `evidently==0.7.23` (pino do próprio pyproject) traz, em
+    # `evidently/descriptors/text_match.py`, um docstring de `TextMatch` que embute
+    # `\b\d{3}-\d{3}-\d{4}\b` numa string comum (não crua). Desde o Python 3.12, o
+    # compilador emite este SyntaxWarning na primeira vez que compila o arquivo; com
+    # bytecode em cache (`__pycache__`), a recompilação não roda de novo e o aviso não
+    # reaparece — por isso a suíte passava localmente e falhava só em ambiente com cache
+    # frio, como o `poetry install` do CI. A mensagem filtrada abaixo ("invalid escape
+    # sequence '\d'") é a curta, emitida pelo compilador da máquina de import
+    # (`importlib`) — diferente da mensagem longa que `compile(fonte, ...)` chamado
+    # isoladamente produz; medido comparando as duas via `warnings.catch_warnings(record=
+    # True)` ao redor de `import evidently` versus ao redor de um `compile()` avulso do
+    # mesmo arquivo, e é a curta que casa com o `SyntaxError: invalid escape sequence
+    # '\d'` observado no CI. Terceiro, não nosso: o traceback aponta para a linha do
+    # docstring dentro do arquivo do Evidently, e uma busca em `src/` e `tests/` não
+    # encontra nenhuma string não-crua com `\d` neste projeto. Sai quando o Evidently
+    # corrigir esse docstring (string crua ou escape duplicado) em versão mais nova que
+    # 0.7.23, ou quando este projeto trocar de biblioteca de drift.
+    "ignore:invalid escape sequence '\\\\d':SyntaxWarning",
 ]
