@@ -21,6 +21,7 @@ dependencies = [
     "scipy (>=1.13,<2.0)",
     "xgboost (>=2.1,<3.0)",
     "evidently (>=0.7.23,<0.8)",
+    "mlflow (>=3.16,<4.0)",
 ]
 
 [tool.poetry]
@@ -123,4 +124,20 @@ filterwarnings = [
     # corrigir esse docstring (string crua ou escape duplicado) em versão mais nova que
     # 0.7.23, ou quando este projeto trocar de biblioteca de drift.
     "ignore:invalid escape sequence '\\\\d':SyntaxWarning",
+    # 2026-09-28: `mlflow==3.16.1` (pino do próprio pyproject, tracking desta etapa), ao
+    # inicializar o backend SQLAlchemy (`sqlite:///...`, o backend que este projeto usa —
+    # o de arquivo está em modo de manutenção, ver `credito.tracking.mlflow_client`),
+    # importa `mlflow/store/tracking/utils/sql_trace_metrics_utils.py`, que chama
+    # `sqlalchemy.orm.aliased(...)` no nível do módulo. Essa chamada dispara
+    # `configure_mappers()`, que usa a estratégia de carregamento `noload`, depreciada no
+    # SQLAlchemy desde a 2.1. Terceiro, não nosso: reproduzido chamando só
+    # `mlflow.set_experiment(...)`/`MlflowClient(...)` contra um SQLite em `tmp_path` —
+    # nenhum código deste projeto importa SQLAlchemy diretamente — e o traceback termina
+    # dentro do MLflow e do SQLAlchemy. Sem este filtro, o primeiro teste da suíte a
+    # tocar o backend SQLite do MLflow falha (a suíte inteira compartilha o registro de
+    # mappers do SQLAlchemy dentro do processo, então só o primeiro toque dispara o
+    # aviso — o que tornaria o resultado sensível à ordem de coleta do pytest se não
+    # fosse silenciado aqui, não só o primeiro teste). Sai quando o MLflow migrar da
+    # estratégia `noload` ou quando o SQLAlchemy remover essa depreciação.
+    "ignore:The ``noload`` loader strategy is deprecated and will be removed in a future release\\.:sqlalchemy.exc.SADeprecationWarning",
 ]
