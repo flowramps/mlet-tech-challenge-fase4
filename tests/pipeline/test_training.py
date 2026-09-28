@@ -20,7 +20,7 @@ from credito.pipeline.training import executar_pipeline, main
 def ambiente(tmp_path, monkeypatch):
     """Monta um dataset pequeno em disco e aponta a configuração para o tmp_path."""
     from credito.config import get_settings
-    from credito.data.prepare import FEATURES
+    from credito.schema import FEATURES
 
     gerador = np.random.default_rng(42)
     n = 800

@@ -38,6 +38,25 @@ def test_pisos_do_gate_estao_calibrados():
     assert settings.min_recall_positivo == 0.6415
 
 
+def test_limiares_de_drift_seguem_a_convencao_do_setor():
+    # Estes dois números não vêm de medição deste dataset — são a convenção de risco de
+    # crédito que a indústria usa para PSI (ver o comentário em `config.py`). O teste fixa
+    # os valores e a ordem entre eles: uma troca acidental deixaria `psi_atencao` acima de
+    # `psi_critico`, e `classificar()` nunca devolveria CRITICO.
+    #
+    # Fixar os valores também é o que mantém honesto o comentário de `config.py`, que
+    # agora cita a nula empírica medida contra a Referência real e diz o quanto cada corte
+    # está acima dela (~62x o pior p95, ~126x o pior p99). Essas razões são derivadas
+    # destes dois números: mudar um deles sem rever o comentário publicaria uma folga que
+    # não é mais a real — o mesmo tipo de apodrecimento que este comentário já sofreu uma
+    # vez, quando afirmava que a medição da nula "ainda não existe" depois de ela ter sido
+    # implementada nesta mesma branch.
+    settings = Settings()
+    assert settings.psi_atencao == 0.10
+    assert settings.psi_critico == 0.25
+    assert settings.psi_atencao < settings.psi_critico
+
+
 def _entradas_do_env_example() -> dict[str, str]:
     caminho = Path(__file__).resolve().parents[1] / ".env.example"
     entradas: dict[str, str] = {}

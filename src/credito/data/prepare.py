@@ -14,55 +14,9 @@ import logging
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from credito import schema
+
 logger = logging.getLogger(__name__)
-
-ALVO = "inadimplente"
-_ALVO_ORIGINAL = "FinancialDistressNextTwoYears"
-
-FEATURES: tuple[str, ...] = (
-    "RevolvingUtilizationOfUnsecuredLines",
-    "age",
-    "NumberOfTime30-59DaysPastDueNotWorse",
-    "DebtRatio",
-    "MonthlyIncome",
-    "NumberOfOpenCreditLinesAndLoans",
-    "NumberOfTimes90DaysLate",
-    "NumberRealEstateLoansOrLines",
-    "NumberOfTime60-89DaysPastDueNotWorse",
-    "NumberOfDependents",
-)
-
-COLUNAS_DE_ATRASO: tuple[str, ...] = (
-    "NumberOfTime30-59DaysPastDueNotWorse",
-    "NumberOfTimes90DaysLate",
-    "NumberOfTime60-89DaysPastDueNotWorse",
-)
-
-# As colunas que o contrato exige sem ter uma regra de negócio nomeada para elas: a única
-# exigência é estrutural — existir, ter o tipo certo e não ser nula. Ficam declaradas aqui,
-# junto das outras constantes compartilhadas, para que limpeza e contrato usem a mesma
-# lista em vez de cada um manter a sua.
-COLUNAS_SEM_REGRA_NOMEADA: tuple[str, ...] = (
-    "RevolvingUtilizationOfUnsecuredLines",
-    "NumberOfOpenCreditLinesAndLoans",
-    "NumberRealEstateLoansOrLines",
-)
-
-IDADE_MINIMA = 18
-IDADE_MAXIMA = 110
-
-# 96 e 98 são códigos de ausência herdados da coleta original, não contagens de atraso.
-# Deixá-los passar ensinaria o modelo que existe um cliente com 98 inadimplências de 90
-# dias, e qualquer estatística de distribuição sairia distorcida por 269 registros.
-ATRASO_MAXIMO_PLAUSIVEL = 20
-
-# A razão dívida/renda plausível: entre os registros com renda declarada, o p95 medido é
-# 1,1. O teto de 10 é uma ordem de grandeza acima disso — generoso o bastante para não
-# reprovar caso atípico legítimo, apertado o bastante para barrar o defeito conhecido.
-# Definida aqui, não em `contracts/rules.py`, porque a limpeza da Referência e o contrato
-# de ingestão precisam da mesma constante — e só há uma direção de import possível entre
-# os dois módulos sem criar um ciclo (rules.py já importa daqui).
-DEBT_RATIO_MAXIMO = 10.0
 
 
 def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
@@ -70,9 +24,9 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     motivos: dict[str, int] = {}
     trabalho = frame.copy()
 
-    if _ALVO_ORIGINAL in trabalho.columns:
-        trabalho[ALVO] = (trabalho[_ALVO_ORIGINAL] == "Yes").astype(int)
-        trabalho = trabalho.drop(columns=[_ALVO_ORIGINAL])
+    if schema.ALVO_ORIGINAL in trabalho.columns:
+        trabalho[schema.ALVO] = (trabalho[schema.ALVO_ORIGINAL] == "Yes").astype(int)
+        trabalho = trabalho.drop(columns=[schema.ALVO_ORIGINAL])
 
     # O dedup olha só para FEATURES, não para a linha inteira: o contrato de ingestão
     # nunca vê o alvo, então duas linhas idênticas em FEATURES mas com alvo diferente já
@@ -81,7 +35,7 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # são duas observações — são um conflito de rótulo, que este dedup também resolve
     # (mantendo a primeira ocorrência, na mesma convenção do `Check` do contrato).
     antes = len(trabalho)
-    trabalho = trabalho.drop_duplicates(subset=list(FEATURES))
+    trabalho = trabalho.drop_duplicates(subset=list(schema.FEATURES))
     motivos["duplicata"] = antes - len(trabalho)
 
     def _descartar(mascara: pd.Series, rotulo: str) -> None:
@@ -108,13 +62,13 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     _descartar(~trabalho["MonthlyIncome"].ge(0.0), "renda_nula")
     _descartar(~trabalho["NumberOfDependents"].ge(0.0), "dependentes_nulo")
     _descartar(
-        ~trabalho["age"].between(IDADE_MINIMA, IDADE_MAXIMA),
+        ~trabalho["age"].between(schema.IDADE_MINIMA, schema.IDADE_MAXIMA),
         "idade_invalida",
     )
 
     sentinela = pd.Series(False, index=trabalho.index)
-    for coluna in COLUNAS_DE_ATRASO:
-        sentinela |= ~trabalho[coluna].between(0, ATRASO_MAXIMO_PLAUSIVEL)
+    for coluna in schema.COLUNAS_DE_ATRASO:
+        sentinela |= ~trabalho[coluna].between(0, schema.ATRASO_MAXIMO_PLAUSIVEL)
     _descartar(sentinela, "atraso_sentinela")
 
     # Rede de segurança para quando a renda vem preenchida mas o DebtRatio ainda assim é
@@ -123,7 +77,7 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # contrato de ingestão aplica — a mesma constante importada, não reafirmada — para
     # que limpeza e contrato nunca divirjam sobre o que é uma razão de dívida aceitável.
     _descartar(
-        ~trabalho["DebtRatio"].between(0.0, DEBT_RATIO_MAXIMO),
+        ~trabalho["DebtRatio"].between(0.0, schema.DEBT_RATIO_MAXIMO),
         "razao_divida_implausivel",
     )
 
@@ -133,11 +87,11 @@ def limpar(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     # falem de um defeito só. Mede 0 no arquivo real — nenhuma das três chega nula —, o
     # que é evidência de que o dado está íntegro nessas colunas, não regra sobrando.
     obrigatoria_nula = pd.Series(False, index=trabalho.index)
-    for coluna in COLUNAS_SEM_REGRA_NOMEADA:
+    for coluna in schema.COLUNAS_SEM_REGRA_NOMEADA:
         obrigatoria_nula |= trabalho[coluna].isna()
     _descartar(obrigatoria_nula, "campo_invalido")
 
-    limpo = trabalho[[ALVO, *FEATURES]].reset_index(drop=True)
+    limpo = trabalho[[schema.ALVO, *schema.FEATURES]].reset_index(drop=True)
     logger.info("referência com %d linhas; descartes: %s", len(limpo), motivos)
     return limpo, motivos
 
@@ -155,11 +109,11 @@ def separar(
     da classe rara o bastante para mover a métrica mais que o próprio modelo.
     """
     resto, teste = train_test_split(
-        frame, test_size=test_size, random_state=seed, stratify=frame[ALVO]
+        frame, test_size=test_size, random_state=seed, stratify=frame[schema.ALVO]
     )
     proporcao = validation_size / (1 - test_size)
     treino, validacao = train_test_split(
-        resto, test_size=proporcao, random_state=seed, stratify=resto[ALVO]
+        resto, test_size=proporcao, random_state=seed, stratify=resto[schema.ALVO]
     )
     return {
         "treino": treino.reset_index(drop=True),

@@ -24,7 +24,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from credito.data.prepare import ALVO, FEATURES
+from credito.schema import ALVO, FEATURES
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from credito.contracts.base import ValidationResult, Violacao
-from credito.data.prepare import ALVO, FEATURES
+from credito.schema import ALVO, FEATURES
 
 _CAMINHO = Path(__file__).resolve().parents[1] / "scripts" / "demo_contrato.py"
 

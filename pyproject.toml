@@ -4,12 +4,12 @@ version = "0.1.0"
 description = "Sustentação de um modelo de risco de crédito: contratos de dados, detecção de drift e observabilidade"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-# Só o que `src/` importa de fato. `fastapi`, `uvicorn`, `prometheus-client` e `scipy`
-# estiveram aqui sem nenhum import correspondente: `scipy` chega de qualquer forma como
-# dependência do scikit-learn, e o leitor de ARFF documenta por que não usa
-# `scipy.io.arff`. As etapas que precisarem de servidor HTTP ou de métricas Prometheus
-# declaram isso quando o código existir — uma dependência não usada é peso na imagem e
-# superfície de CVE em troca de nada.
+# Só o que `src/` importa de fato. `fastapi`, `uvicorn` e `prometheus-client` estiveram
+# aqui sem nenhum import correspondente — as etapas que precisarem de servidor HTTP ou de
+# métricas Prometheus declaram isso quando o código existir. `scipy` chegava como
+# dependência transitiva do scikit-learn e ficou explícito nesta etapa: `drift/statistics.py`
+# importa `scipy.stats.ks_2samp` diretamente, e uma dependência transitiva sem entrada
+# própria some do lock na primeira limpeza de árvore que ninguém liga o import a ela.
 dependencies = [
     "scikit-learn (>=1.5,<2.0)",
     "pandas (>=2.2,<3.0)",
@@ -18,7 +18,9 @@ dependencies = [
     "pydantic-settings (>=2.6,<3.0)",
     "httpx (>=0.27,<1.0)",
     "pandera (>=0.33.1,<0.34)",
+    "scipy (>=1.13,<2.0)",
     "xgboost (>=2.1,<3.0)",
+    "evidently (>=0.7.23,<0.8)",
 ]
 
 [tool.poetry]
@@ -59,4 +61,66 @@ pythonpath = ["src"]
 addopts = "-ra --strict-markers"
 # Filtro de warning é preciso e datado: filtrar a categoria inteira esconde problema.
 # Cada entrada diz a causa e quando pode sair.
-filterwarnings = []
+#
+# O primeiro elemento ("error") é o próprio "-W error" do projeto, escrito aqui em vez de
+# em "-W" na linha de comando: o pytest aplica os filtros do `filterwarnings` do ini ANTES
+# dos de "-W" (`_pytest.config.apply_warning_filters` comenta a ordem: "Filters should be
+# applied in the inverse order of precedence" — cmdline por último, logo na frente da
+# lista, logo checado primeiro). Um "-W error" na linha de comando por cima deste arquivo
+# sempre vence e ignora as duas entradas abaixo — verificado rodando
+# `pytest -W error -q` com estas mesmas entradas presentes: a suíte falha do mesmo jeito,
+# porque o "-W error" da linha de comando não tem categoria/mensagem, casa com qualquer
+# warning e é checado antes de qualquer entrada deste arquivo. Por isso o comando que de
+# fato exercita esta configuração é `pytest` puro (sem `-W`), não `pytest -W error`.
+filterwarnings = [
+    "error",
+    # 2026-09-27: `evidently==0.7.23` (pino do próprio pyproject) importa, na cadeia de
+    # `from evidently import ...`, o módulo `evidently.legacy.tests.utils`, que ainda
+    # escreve em `numpy.core` — renomeado para `numpy._core` desde o NumPy 2.0. Terceiro,
+    # não nosso: medido reproduzindo o import isolado (`import evidently` sob
+    # `warnings.simplefilter("error", DeprecationWarning)`), o traceback termina dentro
+    # do pacote do Evidently, não deste projeto. Sai quando o Evidently corrigir o
+    # próprio import ou quando este projeto trocar de biblioteca de drift.
+    "ignore:numpy\\.core is deprecated and has been renamed to numpy\\._core:DeprecationWarning",
+    # 2026-09-27: o mesmo import de `evidently` carrega, de forma ansiosa (mesmo sem este
+    # projeto usar a UI do Evidently), `evidently.legacy.ui.managers.projects`, que ainda
+    # chama a API antiga do litestar (`Dependency`/`DependencyKwarg`), depreciada na
+    # litestar 2.23 com remoção anunciada para a 3.0. Mesma medição do item acima: o
+    # traceback termina dentro do Evidently. Saem quando o Evidently migrar para
+    # `litestar.di.NamedDependency` ou quando este projeto trocar de biblioteca de drift.
+    "ignore:Call to deprecated function 'Dependency'\\.:DeprecationWarning",
+    "ignore:Use of deprecated class 'DependencyKwarg'\\.:DeprecationWarning",
+    # 2026-09-27: `scipy.stats.ks_2samp` tenta o cálculo exato do p-valor por padrão
+    # (`mode="auto"`) e, para certas combinações de tamanho de amostra e estatística D, a
+    # rotina exata (`scipy/stats/_stats_py.py::_attempt_exact_2kssamp`) falha internamente
+    # e cai para o modo assintótico emitindo este aviso — comportamento interno do SciPy,
+    # não um defeito deste projeto: o p-valor entregue nesse caminho já é a aproximação
+    # assintótica padrão, a mesma que `mode="asymp"` pediria explicitamente, então nenhum
+    # resultado fica errado. Reproduzido chamando `credito.drift.statistics.ks` (via a
+    # orquestração de monitoramento) sobre duas amostras sintéticas de 400
+    # linhas cada — o traceback termina dentro do SciPy. Sai quando o SciPy parar de
+    # precisar desse fallback ou emitir o aviso de outra forma.
+    # O ":" literal da mensagem original ("ks_2samp: Exact...") quebraria o parser de
+    # `filterwarnings` do pytest, que separa os campos por ":" sem respeitar escape — por
+    # isso o colon vira "\x3a" em regex (o mesmo caractere, sem o literal que confundiria
+    # o parser).
+    "ignore:ks_2samp\\x3a Exact calculation unsuccessful\\. Switching to method=asymp\\.:RuntimeWarning",
+    # 2026-09-27: `evidently==0.7.23` (pino do próprio pyproject) traz, em
+    # `evidently/descriptors/text_match.py`, um docstring de `TextMatch` que embute
+    # `\b\d{3}-\d{3}-\d{4}\b` numa string comum (não crua). Desde o Python 3.12, o
+    # compilador emite este SyntaxWarning na primeira vez que compila o arquivo; com
+    # bytecode em cache (`__pycache__`), a recompilação não roda de novo e o aviso não
+    # reaparece — por isso a suíte passava localmente e falhava só em ambiente com cache
+    # frio, como o `poetry install` do CI. A mensagem filtrada abaixo ("invalid escape
+    # sequence '\d'") é a curta, emitida pelo compilador da máquina de import
+    # (`importlib`) — diferente da mensagem longa que `compile(fonte, ...)` chamado
+    # isoladamente produz; medido comparando as duas via `warnings.catch_warnings(record=
+    # True)` ao redor de `import evidently` versus ao redor de um `compile()` avulso do
+    # mesmo arquivo, e é a curta que casa com o `SyntaxError: invalid escape sequence
+    # '\d'` observado no CI. Terceiro, não nosso: o traceback aponta para a linha do
+    # docstring dentro do arquivo do Evidently, e uma busca em `src/` e `tests/` não
+    # encontra nenhuma string não-crua com `\d` neste projeto. Sai quando o Evidently
+    # corrigir esse docstring (string crua ou escape duplicado) em versão mais nova que
+    # 0.7.23, ou quando este projeto trocar de biblioteca de drift.
+    "ignore:invalid escape sequence '\\\\d':SyntaxWarning",
+]

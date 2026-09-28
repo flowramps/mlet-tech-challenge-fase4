@@ -28,7 +28,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from credito.data.prepare import ALVO, FEATURES
+from credito.schema import ALVO, FEATURES
 
 logger = logging.getLogger(__name__)
 

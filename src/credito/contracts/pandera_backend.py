@@ -31,11 +31,11 @@ import pandera.pandas as pa
 
 from credito.contracts.base import ValidationResult, Validator, Violacao
 
-# As cinco constantes compartilhadas moram em `data.prepare` e vêm de lá, todas pela mesma
+# As cinco constantes compartilhadas moram em `credito.schema` e vêm de lá, todas pela mesma
 # porta. `DEBT_RATIO_MAXIMO` já chegou aqui reexportada por `contracts.rules`: o valor era
 # o mesmo, mas a rota extra sugeria que a constante pertencesse ao módulo de regras, e
 # quem fosse alterá-la procuraria no lugar errado.
-from credito.data.prepare import (
+from credito.schema import (
     ATRASO_MAXIMO_PLAUSIVEL,
     COLUNAS_DE_ATRASO,
     DEBT_RATIO_MAXIMO,

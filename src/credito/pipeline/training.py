@@ -17,7 +17,7 @@ from credito.contracts.base import ContratoViolado
 from credito.contracts.pandera_backend import construir_validador
 from credito.data.arff import ler_arff
 from credito.data.download import baixar_dataset
-from credito.data.prepare import ALVO, FEATURES, limpar, separar
+from credito.data.prepare import limpar, separar
 from credito.model.evaluate import avaliar, avaliar_por_faixa_etaria, salvar_metricas
 from credito.model.train import (
     TIPOS_DE_MODELO,
@@ -32,6 +32,7 @@ from credito.pipeline.steps import (
     motivos_de_regressao,
     registrar_historico,
 )
+from credito.schema import ALVO, FEATURES
 
 logger = logging.getLogger(__name__)
 

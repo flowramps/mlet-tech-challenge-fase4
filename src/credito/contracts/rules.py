@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from credito.data.prepare import (
+from credito.schema import (
     ATRASO_MAXIMO_PLAUSIVEL,
     COLUNAS_DE_ATRASO,
     DEBT_RATIO_MAXIMO,
