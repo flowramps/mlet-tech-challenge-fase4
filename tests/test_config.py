@@ -91,8 +91,22 @@ def test_defaults_de_diretorio_sao_absolutos_e_ancorados_no_repositorio():
     padrao = Settings()
     declarados = _entradas_do_env_example()
 
-    for campo in ("data_dir", "models_dir", "metrics_dir", "reports_dir"):
+    for campo in ("data_dir", "models_dir", "metrics_dir", "reports_dir", "mlruns_dir"):
         valor = getattr(padrao, campo)
         assert valor.is_absolute(), campo
         assert valor.parent == PROJECT_ROOT, campo
         assert f"CREDITO_{campo.upper()}" not in declarados, campo
+
+
+def test_mlflow_tracking_uri_e_sqlite_dentro_de_mlruns_dir():
+    # Nunca o backend de arquivo do MLflow 3.x: está em modo de manutenção (ver
+    # credito.tracking.mlflow_client). Também confere que trocar mlruns_dir troca a URI —
+    # as duas coisas precisam variar juntas, senão um Settings customizado em teste
+    # continuaria apontando para o SQLite do repositório real.
+    settings = Settings(mlruns_dir=Path("/tmp/x/mlruns"))
+    assert settings.mlflow_tracking_uri == "sqlite:////tmp/x/mlruns/mlflow.db"
+
+
+def test_mlflow_artifact_location_fica_dentro_de_mlruns_dir():
+    settings = Settings(mlruns_dir=Path("/tmp/x/mlruns"))
+    assert settings.mlflow_artifact_location == "/tmp/x/mlruns/artifacts"

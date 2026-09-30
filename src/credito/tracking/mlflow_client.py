@@ -50,9 +50,24 @@ de proxy ou de métrica de campeão nunca vazado vire rótulo de métrica sem ni
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+# Precisa rodar antes de qualquer `mlflow.start_run()`: a partir da 3.x, o MLflow sobe uma
+# thread em segundo plano que faz uma requisição HTTP real a um endpoint de telemetria da
+# própria MLflow, fora de qualquer coisa que este módulo pediu (medido: capturado com
+# `socket.connect` instrumentado, thread `mlflow.telemetry.client._fetch`). Silenciar isso
+# por variável de ambiente, não só nos testes — um pipeline de crédito não deveria abrir
+# uma conexão de saída não declarada a cada execução. `setdefault` preserva a escolha de
+# quem já tiver desativado explicitamente com `DO_NOT_TRACK`.
+os.environ.setdefault("MLFLOW_DISABLE_TELEMETRY", "true")
+# O mesmo import imprime, no console de quem rodar `make monitor`, uma instrução para
+# "carregar" um arquivo de skill embutido no próprio pacote antes de "escrever código de
+# tracing" — texto endereçado a um agente de IA, não a um operador humano. Desligado pela
+# mesma razão da telemetria: nenhum artefato deste projeto instrui ferramenta nenhuma.
+os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 import mlflow
 from mlflow.tracking import MlflowClient
