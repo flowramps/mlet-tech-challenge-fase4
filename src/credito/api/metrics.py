@@ -55,24 +55,27 @@ from credito.monitoring.proxies import LIMIAR_PADRAO, taxa_de_aprovacao
 # régua.
 HTTP_BUCKETS = (0.0005, 0.00075, 0.001, 0.0015, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25)
 
-# Medido na mesma bateria: 200 chamadas diretas a `Modelo.predict_proba` (o mesmo dublê,
-# fora do TestClient — isolando a chamada do modelo da pilha HTTP em volta dela). p50
-# 6,02 µs, p90 6,28 µs, p99 12,63 µs, máximo 111,98 µs — quase três ordens de grandeza
-# abaixo da requisição HTTP inteira, a mesma proporção que justifica medir as duas
-# separadamente. Os buckets começam em 1 µs (abaixo do p50 medido) e vão até 1 ms, cerca
-# de 9x acima do máximo medido, com folga para o custo real de um XGBoost com 300
-# árvores, que este dublê não reproduz.
+# A primeira medição desta constante usou um dublê de modelo (sem custo real de
+# árvore/regressão) e calibrou buckets até 1 ms — valor que o campeão real (XGBoost, 300
+# árvores) estourava em toda requisição assim que a stack subiu de verdade (Task 5): as
+# 540 chamadas reais caíam inteiras no bucket +Inf, tornando o Histogram inútil. Remedido
+# com `Modelo.predict_proba` real, 540 chamadas, payload variado: p50 3,515 ms, p90
+# 7,696 ms, p95 9,665 ms, p99 13,442 ms, máximo 17,367 ms (medição registrada em
+# `docs/monitoring_plan.md`). Os buckets abaixo cobrem essa faixa com granularidade fina
+# e vão até 150 ms — cerca de 9x acima do máximo medido, a mesma folga proporcional que a
+# primeira calibração já usava sobre o próprio máximo dela.
 INFERENCE_BUCKETS = (
-    0.000001,
-    0.0000025,
-    0.000005,
-    0.00001,
-    0.000025,
-    0.00005,
-    0.0001,
-    0.00025,
-    0.0005,
     0.001,
+    0.0025,
+    0.005,
+    0.0075,
+    0.01,
+    0.015,
+    0.02,
+    0.03,
+    0.05,
+    0.1,
+    0.15,
 )
 
 # `predict_proba` devolve sempre um valor em [0, 1] — não é medição, é o domínio
