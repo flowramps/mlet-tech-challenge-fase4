@@ -1,0 +1,17 @@
+# Provedor de dashboards por arquivo: lê o JSON versionado em
+# docker/grafana/dashboards/ (bind-mount somente leitura, ver docker-compose.yml) em vez de
+# esperar alguém importar/clicar o dashboard pela UI. `allowUiUpdates: false` fecha a volta:
+# uma edição feita na UI do Grafana não sobrevive a um restart do container, então o JSON no
+# git continua sendo a única fonte de verdade.
+apiVersion: 1
+
+providers:
+  - name: credito
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
