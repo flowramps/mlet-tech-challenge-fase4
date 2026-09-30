@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -120,10 +122,10 @@ def test_taxa_de_aprovacao_chama_de_fato_credito_monitoring_proxies(client, monk
     assert "credito_taxa_de_aprovacao 0.1234" in corpo
 
 
-def test_taxa_de_aprovacao_no_limiar_exato_conta_como_aprovado(client):
+def test_taxa_de_aprovacao_no_limiar_exato_nao_conta_como_aprovado(client):
     """Fecha a lacuna que a comparação numérica sozinha deixa passar: com uma
-    probabilidade EXATAMENTE no limiar, `<` (a convenção de `taxa_de_aprovacao`) aprova e
-    `<=` também aprovaria — mas qualquer implementação que usasse `>` ou `>=` invertida
+    probabilidade EXATAMENTE no limiar, `<` (a convenção de `taxa_de_aprovacao`) NÃO conta
+    como aprovado — mas qualquer implementação que usasse `<=` ou operador invertido
     seria pega aqui."""
     client.post("/score", json=_payload(RevolvingUtilizationOfUnsecuredLines=LIMIAR_PADRAO))
     corpo = client.get("/metrics").text
@@ -153,12 +155,31 @@ def test_model_info_expoe_candidato_e_metricas_de_qualidade(client):
     assert 'auc_pr="0.4147"' in corpo
 
 
+def _soma_requests_total(corpo: str) -> float:
+    """Soma `credito_http_requests_total` em TODAS as combinações de rótulos presentes no
+    corpo — não confia em nenhum rótulo específico (nem `/metrics`, nem `sem_rota`), para
+    pegar uma mutação que continue contando o scrape só que sob um rótulo diferente do
+    esperado, em vez de pular a contagem de fato."""
+    valores = re.findall(r"^credito_http_requests_total\{[^}]*\} (\d+\.?\d*)$", corpo, re.MULTILINE)
+    return sum(float(v) for v in valores)
+
+
 def test_scrape_do_metrics_nao_conta_como_trafego(client):
     """O coletor raspa em intervalo fixo: se o scrape contasse, o painel de total de
-    requisições subiria sozinho com a API sem nenhum cliente real."""
+    requisições subiria sozinho com a API sem nenhum cliente real. Não basta checar que o
+    rótulo `/metrics` está ausente — uma mutação que contasse o scrape sob outro rótulo
+    (por exemplo `sem_rota`) passaria por essa checagem sozinha; por isso o total somado
+    em todos os rótulos também precisa ficar parado entre os dois scrapes seguintes, sem
+    nenhum tráfego real entre eles."""
     client.get("/metrics")
-    corpo = client.get("/metrics").text
-    assert 'route="/metrics"' not in corpo
+    corpo_antes = client.get("/metrics").text
+    total_antes = _soma_requests_total(corpo_antes)
+
+    corpo_depois = client.get("/metrics").text
+    total_depois = _soma_requests_total(corpo_depois)
+
+    assert 'route="/metrics"' not in corpo_depois
+    assert total_depois == total_antes
 
 
 def test_rota_nao_declarada_nao_vaza_o_caminho_bruto_como_rotulo(client):
