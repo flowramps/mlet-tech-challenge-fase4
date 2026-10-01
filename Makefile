@@ -1,6 +1,7 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
-.PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao validar-proxies
+.PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
+	validar-proxies mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -38,3 +39,19 @@ verificar-degradacao: ## Confere a degradação monotônica do campeão e a cali
 
 validar-proxies:  ## Mede quanto cada proxy sem rótulo antecipa a degradação real do campeão
 	poetry run python scripts/validar_proxies.py
+
+mlflow-up:        ## Sobe a UI do MLflow contra o mesmo SQLite que `make monitor` grava
+	MLFLOW_DISABLE_TELEMETRY=true MLFLOW_DISABLE_AGENT_HINT=1 \
+		poetry run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db --port 5000
+
+api:              ## Sobe a API de scoring localmente (fora do Docker), para desenvolvimento
+	poetry run uvicorn credito.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+observabilidade-up: ## Sobe a pilha completa (API + Prometheus + Grafana) via Docker Compose
+	docker compose up -d --build
+
+observabilidade-down: ## Derruba a pilha subida por `make observabilidade-up`
+	docker compose down
+
+traffic:          ## Gera tráfego real contra a API para os painéis terem o que mostrar
+	poetry run python scripts/gerar_trafego.py
