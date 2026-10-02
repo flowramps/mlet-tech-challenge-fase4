@@ -14,9 +14,12 @@ import pytest
 
 from credito.model.evaluate import (
     FAIXAS_ETARIAS,
+    LIMIAR_QUATRO_QUINTOS,
     METRICAS_GLOBAIS,
     avaliar,
     avaliar_por_faixa_etaria,
+    diferenca_de_oportunidade,
+    razao_impacto_adverso,
     salvar_metricas,
 )
 from credito.schema import ALVO, FEATURES
@@ -130,3 +133,96 @@ def test_salvar_metricas_grava_json_legivel(tmp_path):
     salvar_metricas({"auc_pr": 0.42}, caminho)
 
     assert json.loads(caminho.read_text(encoding="utf-8"))["auc_pr"] == 0.42
+
+
+# --- equidade: duas métricas formais, que podem discordar entre si ---------------------
+#
+# Os fixtures são dicts no formato que `avaliar_por_faixa_etaria` devolve, montados à mão:
+# as duas funções são puras sobre esse resultado, e montar o dict é o único jeito de pôr
+# uma faixa EXATAMENTE na fronteira dos 4/5 sem depender de arredondamento de modelo.
+
+
+def _faixa(aprovacao: float, recall: float | None = None) -> dict[str, float]:
+    entrada = {"n": 100, "taxa_de_aprovacao": aprovacao}
+    if recall is not None:
+        entrada["recall_positivo"] = recall
+    return entrada
+
+
+def test_quatro_quintos_compara_cada_faixa_contra_a_mais_aprovada():
+    resultado = razao_impacto_adverso({"jovem": _faixa(0.5), "idoso": _faixa(1.0)})
+
+    assert resultado["referencia"] == "idoso"
+    assert resultado["faixas"]["jovem"]["razao"] == pytest.approx(0.5)
+    assert resultado["faixas"]["idoso"]["razao"] == pytest.approx(1.0)
+
+
+def test_quatro_quintos_exatamente_na_fronteira_nao_e_impacto_adverso():
+    # A regra é "menos de quatro quintos": 0,80 cravado passa. Um `<=` no lugar do `<`
+    # inverteria o veredito exatamente aqui, e só aqui — por isso o teste mora na
+    # fronteira, não longe dela.
+    resultado = razao_impacto_adverso({"a": _faixa(0.8), "b": _faixa(1.0)})
+
+    assert LIMIAR_QUATRO_QUINTOS == 0.8
+    assert resultado["faixas"]["a"]["razao"] == 0.8
+    assert resultado["faixas"]["a"]["impacto_adverso"] is False
+
+
+def test_quatro_quintos_logo_abaixo_da_fronteira_e_impacto_adverso():
+    resultado = razao_impacto_adverso({"a": _faixa(0.79), "b": _faixa(1.0)})
+
+    assert resultado["faixas"]["a"]["impacto_adverso"] is True
+    assert resultado["faixas"]["b"]["impacto_adverso"] is False
+
+
+def test_quatro_quintos_recusa_resultado_vazio():
+    with pytest.raises(ValueError, match="faixa"):
+        razao_impacto_adverso({})
+
+
+def test_quatro_quintos_recusa_quando_ninguem_e_aprovado():
+    # Sem nenhuma aprovação em lugar nenhum a razão é 0/0: devolver 0 ou 1 inventaria um
+    # veredito sobre um caso em que não há o que comparar.
+    with pytest.raises(ValueError, match="aprova"):
+        razao_impacto_adverso({"a": _faixa(0.0), "b": _faixa(0.0)})
+
+
+def test_oportunidade_mede_a_distancia_ate_o_maior_recall():
+    resultado = diferenca_de_oportunidade(
+        {"jovem": _faixa(0.6, recall=0.8), "idoso": _faixa(0.9, recall=0.5)}
+    )
+
+    assert resultado["referencia"] == "jovem"
+    assert resultado["faixas"]["idoso"]["diferenca"] == pytest.approx(0.3)
+    assert resultado["faixas"]["jovem"]["diferenca"] == pytest.approx(0.0)
+
+
+def test_oportunidade_omite_faixa_sem_recall_em_vez_de_zerar():
+    # `avaliar_por_faixa_etaria` não emite recall numa faixa sem inadimplente real: a
+    # métrica é indefinida ali. Tratar a ausência como 0,0 faria essa faixa parecer a
+    # mais prejudicada da tabela — o oposto de "não há o que medir".
+    resultado = diferenca_de_oportunidade(
+        {"sem_positivo": _faixa(0.9), "a": _faixa(0.6, recall=0.8), "b": _faixa(0.7, recall=0.7)}
+    )
+
+    assert "sem_positivo" not in resultado["faixas"]
+    assert set(resultado["faixas"]) == {"a", "b"}
+
+
+def test_oportunidade_recusa_quando_nenhuma_faixa_tem_recall():
+    with pytest.raises(ValueError, match="recall"):
+        diferenca_de_oportunidade({"a": _faixa(0.9), "b": _faixa(0.8)})
+
+
+def test_as_duas_metricas_podem_apontar_grupos_opostos():
+    # O caso que justifica reportar as duas, não uma: o grupo mais aprovado (referência
+    # da regra dos 4/5) é o mesmo em que o modelo menos enxerga o inadimplente. Uma só
+    # métrica de equidade daria o veredito de uma direção e esconderia a outra.
+    por_faixa = {"jovem": _faixa(0.65, recall=0.79), "idoso": _faixa(0.93, recall=0.50)}
+
+    quatro_quintos = razao_impacto_adverso(por_faixa)
+    oportunidade = diferenca_de_oportunidade(por_faixa)
+
+    assert quatro_quintos["faixas"]["jovem"]["impacto_adverso"] is True
+    assert oportunidade["referencia"] == "jovem"
+    assert oportunidade["faixas"]["idoso"]["diferenca"] > 0

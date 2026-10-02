@@ -84,6 +84,24 @@ def test_primeira_execucao_promove_e_grava_artefatos(ambiente):
     assert "por_faixa_etaria" in metricas
 
 
+def test_metrics_json_publica_as_duas_metricas_de_equidade_sobre_o_mesmo_recorte(ambiente):
+    # As duas métricas precisam sair do MESMO `por_faixa_etaria` que o arquivo publica —
+    # calculadas sobre outro recorte, o model card citaria uma razão que não bate com a
+    # tabela de faixas ao lado dela.
+    executar_pipeline()
+
+    metricas = json.loads((ambiente / "metrics" / "metrics.json").read_text(encoding="utf-8"))
+    equidade = metricas["equidade"]
+    por_faixa = metricas["por_faixa_etaria"]
+
+    assert set(equidade["quatro_quintos"]["faixas"]) == set(por_faixa)
+    referencia = equidade["quatro_quintos"]["referencia"]
+    for nome, faixa in equidade["quatro_quintos"]["faixas"].items():
+        esperado = por_faixa[nome]["taxa_de_aprovacao"] / por_faixa[referencia]["taxa_de_aprovacao"]
+        assert faixa["razao"] == esperado
+    assert "referencia" in equidade["oportunidade"]
+
+
 def test_segunda_execucao_nao_falha_quando_empata(ambiente):
     # Esta é a regressão mais importante da etapa: sobre dado estático, o retreino
     # reproduz o incumbente. Se isso levantasse QualityGateError, todo pipeline periódico
