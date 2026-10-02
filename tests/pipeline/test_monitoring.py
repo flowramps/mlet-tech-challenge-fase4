@@ -17,6 +17,7 @@ import socket
 import numpy as np
 import pandas as pd
 import pytest
+from mlflow.tracking import MlflowClient
 
 from credito.contracts.base import ContratoViolado, ValidationResult, Violacao
 from credito.data.simulate import VARIAVEIS_COM_DRIFT
@@ -109,6 +110,7 @@ def ambiente(tmp_path, monkeypatch):
     monkeypatch.setenv("CREDITO_MODELS_DIR", str(tmp_path / "models"))
     monkeypatch.setenv("CREDITO_METRICS_DIR", str(tmp_path / "metrics"))
     monkeypatch.setenv("CREDITO_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("CREDITO_MLRUNS_DIR", str(tmp_path / "mlruns"))
     monkeypatch.setenv("CREDITO_DATASET_FILENAME", "d.arff")
     settings = get_settings()
 
@@ -148,6 +150,47 @@ def test_ponta_a_ponta_grava_o_resumo_consolidado_em_json(ambiente):
     assert "degradacao_por_lote" in conteudo
     assert "atribuicao_causal_por_lote" in conteudo
     assert len(conteudo["lotes"]) == 6
+
+
+def test_ponta_a_ponta_registra_run_no_mlflow_com_parametros_metricas_e_artefatos(ambiente):
+    """`executar_monitoramento` liga ao MLflow de verdade (Task 7) — não só constrói o
+    JSON consolidado. Sem este teste, remover a chamada a `registrar_execucao` deixaria a
+    suíte inteira verde: nenhum outro teste desta classe consulta o backend MLflow."""
+    from credito.config import get_settings
+
+    resultado = executar_monitoramento(meses=6, seed=123)
+
+    assert resultado["mlflow_run_id"]
+
+    settings = get_settings()
+    client = MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
+    run = client.get_run(resultado["mlflow_run_id"])
+
+    assert run.data.params["semente"] == "123"
+    assert run.data.params["meses"] == "6"
+
+    # PSI por feature é série temporal (um valor por mês, step=mes) — get_metric_history
+    # devolve todos os pontos; r.data.metrics só devolveria o último (ver o docstring de
+    # credito.tracking.mlflow_client).
+    historico_psi = {
+        nome: client.get_metric_history(run.info.run_id, nome)
+        for nome in run.data.metrics
+        if nome.startswith("drift.psi.")
+    }
+    assert historico_psi, "nenhuma métrica drift.psi.* foi registrada"
+    algum_historico = next(iter(historico_psi.values()))
+    assert len(algum_historico) == 6, "psi por feature deveria ter um ponto por mês"
+
+    # As três famílias de proxy sem rótulo (Task 1/2) também precisam estar no run —
+    # é o que conecta o alarme desta etapa ao rastreamento.
+    nomes_de_metrica = set(run.data.metrics)
+    assert any(nome.startswith("proxy.taxa_de_aprovacao") for nome in nomes_de_metrica)
+    assert any(nome.startswith("proxy.psi_do_score") for nome in nomes_de_metrica)
+    assert any(nome.startswith("proxy.confianca_media") for nome in nomes_de_metrica)
+
+    artefatos = {artefato.path for artefato in client.list_artifacts(run.info.run_id)}
+    assert "monitoramento.json" in artefatos
+    assert any(nome.startswith("drift_mes_") for nome in artefatos)
 
 
 def test_json_consolidado_poe_a_consequencia_antes_da_tabela_de_psi(ambiente):

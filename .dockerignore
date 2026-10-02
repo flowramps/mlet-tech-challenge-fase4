@@ -1,0 +1,21 @@
+# Reduz o contexto de build ao que o Dockerfile de fato copia (pyproject.toml, poetry.lock,
+# README.md, src/, models/). O resto — dados baixados, artefatos de teste/lint, ambiente
+# virtual local — nunca precisa atravessar o daemon do Docker.
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.coverage
+data
+metrics
+reports
+mlruns
+docs
+tests
+scripts
+.superpowers
+.claude
+notebooks

@@ -1,0 +1,16 @@
+# Intervalo de scrape de 5s: esta pilha é demonstração/observação local, não produção — um
+# humano olhando o Grafana ao vivo (ex.: gerando tráfego com `curl` contra /score) vê o
+# painel se mover poucos segundos depois da requisição, sem apertar o suficiente para
+# sobrecarregar a única réplica da API que este mesmo scrape mede. Um intervalo de produção
+# real seria decidido por outro orçamento (custo de séries temporais armazenadas versus
+# frescor exigido pelo alarme), não por este.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Um único job, um único alvo: a API de scoring instrumentada por credito.api.metrics.
+  # Nome do serviço (`api`), não IP — resolvido pela rede do Docker Compose.
+  - job_name: "credito-api"
+    static_configs:
+      - targets: ["api:8000"]

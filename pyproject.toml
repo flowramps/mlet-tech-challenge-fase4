@@ -4,23 +4,32 @@ version = "0.1.0"
 description = "Sustentação de um modelo de risco de crédito: contratos de dados, detecção de drift e observabilidade"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-# Só o que `src/` importa de fato. `fastapi`, `uvicorn` e `prometheus-client` estiveram
-# aqui sem nenhum import correspondente — as etapas que precisarem de servidor HTTP ou de
-# métricas Prometheus declaram isso quando o código existir. `scipy` chegava como
-# dependência transitiva do scikit-learn e ficou explícito nesta etapa: `drift/statistics.py`
-# importa `scipy.stats.ks_2samp` diretamente, e uma dependência transitiva sem entrada
-# própria some do lock na primeira limpeza de árvore que ninguém liga o import a ela.
+# Só o que `src/` importa de fato. `scipy` chegava como dependência transitiva do
+# scikit-learn e ficou explícito quando `drift/statistics.py` passou a importar
+# `scipy.stats.ks_2samp` diretamente — uma dependência transitiva sem entrada própria some
+# do lock na primeira limpeza de árvore que ninguém liga o import a ela. `fastapi`,
+# `uvicorn` e `prometheus-client` fizeram o caminho inverso: chegaram a estar aqui sem
+# import correspondente, saíram, e voltam agora que `credito.api` (`main.py`/`metrics.py`)
+# de fato os importa para servir o campeão e expor a instrumentação Prometheus. `pydantic`
+# chegava de carona pelo `pydantic-settings` (que já é dependência direta); passou a ser
+# import direto quando `credito.api.schemas` declarou os schemas de entrada/saída da API
+# com `pydantic.BaseModel`, e ficou explícito pelo mesmo motivo do `numpy`.
 dependencies = [
     "scikit-learn (>=1.5,<2.0)",
     "pandas (>=2.2,<3.0)",
     "numpy (>=2.0,<3.0)",
     "joblib (>=1.4,<2.0)",
+    "fastapi (>=0.115,<1.0)",
+    "uvicorn[standard] (>=0.32,<1.0)",
+    "pydantic (>=2.6,<3.0)",
     "pydantic-settings (>=2.6,<3.0)",
     "httpx (>=0.27,<1.0)",
+    "prometheus-client (>=0.21,<1.0)",
     "pandera (>=0.33.1,<0.34)",
     "scipy (>=1.13,<2.0)",
     "xgboost (>=2.1,<3.0)",
     "evidently (>=0.7.23,<0.8)",
+    "mlflow (>=3.16,<4.0)",
 ]
 
 [tool.poetry]
@@ -123,4 +132,35 @@ filterwarnings = [
     # corrigir esse docstring (string crua ou escape duplicado) em versão mais nova que
     # 0.7.23, ou quando este projeto trocar de biblioteca de drift.
     "ignore:invalid escape sequence '\\\\d':SyntaxWarning",
+    # 2026-09-28: `mlflow==3.16.1` (pino do próprio pyproject, tracking desta etapa), ao
+    # inicializar o backend SQLAlchemy (`sqlite:///...`, o backend que este projeto usa —
+    # o de arquivo está em modo de manutenção, ver `credito.tracking.mlflow_client`),
+    # importa `mlflow/store/tracking/utils/sql_trace_metrics_utils.py`, que chama
+    # `sqlalchemy.orm.aliased(...)` no nível do módulo. Essa chamada dispara
+    # `configure_mappers()`, que usa a estratégia de carregamento `noload`, depreciada no
+    # SQLAlchemy desde a 2.1. Terceiro, não nosso: reproduzido chamando só
+    # `mlflow.set_experiment(...)`/`MlflowClient(...)` contra um SQLite em `tmp_path` —
+    # nenhum código deste projeto importa SQLAlchemy diretamente — e o traceback termina
+    # dentro do MLflow e do SQLAlchemy. Sem este filtro, o primeiro teste da suíte a
+    # tocar o backend SQLite do MLflow falha (a suíte inteira compartilha o registro de
+    # mappers do SQLAlchemy dentro do processo, então só o primeiro toque dispara o
+    # aviso — o que tornaria o resultado sensível à ordem de coleta do pytest se não
+    # fosse silenciado aqui, não só o primeiro teste). Sai quando o MLflow migrar da
+    # estratégia `noload` ou quando o SQLAlchemy remover essa depreciação.
+    "ignore:The ``noload`` loader strategy is deprecated and will be removed in a future release\\.:sqlalchemy.exc.SADeprecationWarning",
+    # 2026-09-28: `starlette==1.7.0` (dependência transitiva de `fastapi`, pino desta
+    # etapa) tenta `import httpx2` dentro de `starlette/testclient.py` e, ao não achar o
+    # pacote (`httpx2` não é dependência deste projeto — só `httpx`, já usado por
+    # `credito.data.download`), cai para `import httpx` emitindo este aviso no nível do
+    # módulo. Terceiro, não nosso: reproduzido importando só `fastapi.testclient.
+    # TestClient` fora da suíte, sob `warnings.simplefilter("error")` — o traceback
+    # termina dentro de `starlette/testclient.py`, na chamada de `warnings.warn` logo
+    # depois do `except ModuleNotFoundError` do import de `httpx2`. Adicionar `httpx2`
+    # como dependência só para calar o aviso trocaria um pacote real (`httpx`, testado e
+    # já em uso) por outro não avaliado, pelo único benefício de silenciar um aviso — o
+    # filtro documentado é a escolha mais segura aqui. Sai quando o Starlette parar de
+    # exigir `httpx2` para `TestClient` (reverter a depreciação) ou quando este projeto
+    # adotar `httpx2` deliberadamente, com avaliação própria, não como efeito colateral
+    # de calar um aviso.
+    "ignore:Using `httpx` with `starlette\\.testclient` is deprecated; install `httpx2` instead\\.:starlette.exceptions.StarletteDeprecationWarning",
 ]

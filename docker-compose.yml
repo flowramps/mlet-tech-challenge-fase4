@@ -1,0 +1,53 @@
+# Pilha de observabilidade local: a API de scoring instrumentada (Task 4), o Prometheus que
+# a raspa e o Grafana que visualiza o que ele guarda. Rede própria (`observabilidade`) para
+# que `prometheus` alcance `api` e `grafana` alcance `prometheus` pelo nome do serviço —
+# nenhum IP fixo, nenhuma porta de host exposta é necessária entre os três containers, só
+# para o operador humano olhar de fora (por isso as três portas abaixo mapeiam para o host).
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: credito-api:local
+    ports:
+      - "8000:8000"
+    networks:
+      - observabilidade
+
+  prometheus:
+    # v3.15.0: release estável mais recente da linha 3 no momento desta escrita (não
+    # `latest`, que flutuaria sob o pé deste projeto a cada `docker compose pull`).
+    image: prom/prometheus:v3.15.0
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - observabilidade
+    depends_on:
+      - api
+
+  grafana:
+    # 13.2.3: release estável mais recente no momento desta escrita, mesmo raciocínio do
+    # Prometheus acima — pino explícito, não `latest`.
+    image: grafana/grafana:13.2.3
+    environment:
+      # Pilha de demonstração local, sem exposição externa: credencial fixa e provisionada
+      # por variável de ambiente evita o passo manual de trocar a senha no primeiro login —
+      # o mesmo espírito de "nada clicado à mão" que rege o datasource e o dashboard abaixo.
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - observabilidade
+    depends_on:
+      - prometheus
+
+networks:
+  observabilidade:
+    driver: bridge

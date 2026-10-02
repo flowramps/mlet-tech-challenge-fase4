@@ -1,0 +1,14 @@
+# Datasource provisionado por código — nada clicado à mão no assistente de "Add data
+# source" do Grafana. `uid` fixo (`prometheus`) para o dashboard JSON versionado
+# (docker/grafana/dashboards/) referenciar um datasource estável entre subidas do
+# container, em vez de um uid gerado que mudaria a cada provisionamento.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

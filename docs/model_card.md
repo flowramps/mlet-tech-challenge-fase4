@@ -242,6 +242,12 @@ controlável. Ver as limitações abaixo.
 - **Sem rótulo, metade da degradação é invisível.** Os 48,0% atribuídos ao concept drift só
   aparecem porque a métrica foi calculada contra o rótulo verdadeiro. Nenhum detector de
   drift de feature acusaria essa parte.
+- **O alarme de produção (`taxa_de_aprovacao`, servido pela API instrumentada) é um proxy
+  validado só nesta simulação, nunca contra rótulo real.** A concordância perfeita medida
+  (Spearman rho = −1,0000, n = 6) é evidência dentro do regime de drift que este projeto
+  simula — não garantia de que o mesmo proxy antecipe qualquer outro padrão de degradação
+  real. Ver [`docs/monitoring_plan.md`](monitoring_plan.md) para o raciocínio completo, os
+  três sinais sem rótulo considerados e o que cada um não vê.
 
 ---
 
@@ -252,7 +258,7 @@ controlável. Ver as limitações abaixo.
 | **Falso positivo em escala** | Precisão de 0,2350: cerca de 3 em cada 4 recusas atingem bons pagadores. Perda de receita e de relacionamento | Recall privilegiado por decisão explícita e documentada de custo | Curva de custo para escolher o limiar |
 | **Viés etário** | Recusa varia 4,7× entre faixas contra 2,7× de variação no risco real. Severidade desproporcional com jovens | Medido e publicado a cada execução em `metrics.json` | Análise formal de *disparate impact* e mitigação |
 | **Exclusão de quem não declara renda** | 19,82% do bruto. Hoje bloqueado no contrato, não pontuado | Bloqueio explícito e auditável, em vez de pontuação sobre dado inventado | Política de imputação ou modelo dedicado |
-| **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a decomposição causal, com veredito consolidado | Medição sobre lote de produção real, com a defasagem de rótulo modelada |
+| **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a decomposição causal, com veredito consolidado; a API de scoring expõe `taxa_de_aprovacao` ao vivo (Prometheus/Grafana) — o proxy sem rótulo que mais se moveu por mês de degradação real nesta simulação (ver `docs/monitoring_plan.md`) | Medição sobre lote de produção real, com a defasagem de rótulo modelada; recalibrar o limiar do alarme para a janela de 500 requisições que a API de fato expõe |
 | **Alarmar na variável errada** | PSI aponta onde a distribuição se moveu, não quanto custou. As duas variáveis de PSI mais alto explicam 3,1% da degradação medida | O relatório consolidado publica a decomposição causal **antes** da tabela de PSI, e o resumo do gate carrega a ressalva embutida | Detecção de concept drift sem rótulo |
 | **Dado quebrado na ingestão** | Nulo, sentinela, duplicata, valor implausível | Contrato de 6 regras bloqueando antes do treino e da inferência | Aplicação do mesmo contrato no endpoint de serviço |
 | **Variável correlacionada com atributo protegido** | Renda e número de dependentes podem carregar sinal de gênero, raça ou região não observados | Nenhuma | Auditoria de *proxy* para atributos protegidos não presentes no dado |
@@ -286,4 +292,5 @@ conformidade — é desenvolvido na etapa de governança.
 *Métricas do modelo publicado medidas na execução registrada em `metrics/metrics.json`,
 reproduzível por `make data && make train`. Degradação sob drift e decomposição causal
 medidas na execução registrada em `reports/monitoramento.json`, reproduzível por
-`make monitor`. Os dois arquivos são gerados, não versionados.*
+`make monitor` — a mesma execução que o MLflow registra como run (ver
+`docs/monitoring_plan.md`). Os dois arquivos JSON são gerados, não versionados.*

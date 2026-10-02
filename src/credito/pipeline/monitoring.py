@@ -69,7 +69,9 @@ from credito.drift.gate import CruzamentoDeFeature, GateDeDrift, avaliar_gate
 from credito.drift.statistics import ks, psi
 from credito.model.evaluate import avaliar
 from credito.model.train import carregar_modelo
+from credito.monitoring.proxies import sinais_do_lote
 from credito.schema import FEATURES
+from credito.tracking.mlflow_client import parametros_da_execucao, registrar_execucao
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +302,7 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
 
     relatorios_proprios: list[DriftReport] = []
     relatorio_por_lote: dict[str, dict[str, Any]] = {}
+    proxies_por_lote: dict[str, dict[str, float]] = {}
 
     for nome in nomes_dos_lotes:
         lote = lotes[nome]
@@ -314,6 +317,10 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
         relatorio_proprio = _relatorio_proprio(nome, amostra, lote)
         relatorios_proprios.append(relatorio_proprio)
         relatorio_evidently = detector.detectar(amostra, lote, lote=nome)
+        # `referencia=amostra`: os sinais sem rótulo (Task 1/2) usam a mesma partição de
+        # teste que o resto desta orquestração já usa como linha de base — nunca uma
+        # segunda Referência calculada à parte.
+        proxies_por_lote[nome] = sinais_do_lote(modelo, lote, referencia=amostra)
 
         relatorio_por_lote[nome] = {
             "linhas": int(len(lote)),
@@ -355,7 +362,22 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
         "narrativa": narrativa,
     }
 
-    _gravar_relatorio_consolidado(settings.reports_dir, resultado)
+    caminho_consolidado = _gravar_relatorio_consolidado(settings.reports_dir, resultado)
+
+    artefatos = [dados["relatorio_html"] for dados in relatorio_por_lote.values()]
+    artefatos.append(caminho_consolidado)
+
+    resultado["mlflow_run_id"] = registrar_execucao(
+        tracking_uri=settings.mlflow_tracking_uri,
+        experimento=settings.mlflow_experimento,
+        parametros=parametros_da_execucao(settings, seed=seed, meses=meses),
+        metricas_do_campeao_por_lote=degradacao,
+        drift_por_lote=relatorios_proprios,
+        proxies_por_lote=proxies_por_lote,
+        gate=gate,
+        artefatos=artefatos,
+        artifact_location=settings.mlflow_artifact_location,
+    )
 
     return resultado
 
@@ -390,6 +412,11 @@ def main() -> None:
         )
         sys.exit(1)
     logger.info("gate de drift: %s", resultado["gate"].mensagem)
+    logger.info(
+        "execução registrada no MLflow: experimento=%s run_id=%s",
+        settings.mlflow_experimento,
+        resultado["mlflow_run_id"],
+    )
 
 
 if __name__ == "__main__":

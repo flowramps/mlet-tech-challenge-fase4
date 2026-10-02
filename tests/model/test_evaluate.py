@@ -14,6 +14,7 @@ import pytest
 
 from credito.model.evaluate import (
     FAIXAS_ETARIAS,
+    METRICAS_GLOBAIS,
     avaliar,
     avaliar_por_faixa_etaria,
     salvar_metricas,
@@ -110,6 +111,17 @@ def test_faixa_sem_positivo_nao_reporta_recall():
     por_faixa = avaliar_por_faixa_etaria(modelo, frame)
 
     assert "recall_positivo" not in por_faixa["18-25"]
+
+
+def test_metricas_globais_cobre_exatamente_as_chaves_de_avaliar():
+    # `credito.tracking.mlflow_client` importa `METRICAS_GLOBAIS` como o conjunto fechado
+    # que autoriza um nome de métrica `campeao.*` — este teste tranca que a tupla nunca
+    # fique defasada do que `avaliar` de fato devolve (a mesma disciplina de
+    # `test_canal_por_feature_cobre_exatamente_as_variaveis_com_drift`, em
+    # `tests/pipeline/test_monitoring.py`).
+    metricas = avaliar(_ModeloFixo(np.array([0.2, 0.8])), _frame([0, 1]))
+
+    assert set(metricas) == set(METRICAS_GLOBAIS)
 
 
 def test_salvar_metricas_grava_json_legivel(tmp_path):

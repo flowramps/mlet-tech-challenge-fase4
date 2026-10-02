@@ -917,6 +917,110 @@ PSI como o que ele é. Diagnóstico, não alarme.
 
 ---
 
+## Observabilidade em produção
+
+Tudo na seção anterior mede "quanto custou" porque a simulação **tem** rótulo: a
+degradação real só é calculável porque o gerador entrega o rótulo verdadeiro junto com
+cada lote. **Em produção não existe esse privilégio.** Um sistema real não sabe quem
+inadimpliu até meses depois da decisão de crédito, e é exatamente nesse intervalo que a
+degradação silenciosa acontece. A pergunta desta seção é outra: **que alarme ainda
+funciona quando não há rótulo nenhum para conferir?**
+
+A resposta, medida — não suposta — nesta etapa, com o detalhe completo, limiar a limiar,
+está em [`docs/monitoring_plan.md`](docs/monitoring_plan.md).
+
+### Os sinais sem rótulo, e qual deles vira o alarme
+
+Três sinais são calculáveis só com o que um serviço de produção realmente tem — a entrada
+e o que o modelo devolveu, nunca o rótulo: o deslocamento da distribuição de score
+(`psi_do_score`), a queda da confiança média do modelo e a deriva da taxa de aprovação.
+Medidos contra a degradação real dos seis lotes simulados da seção anterior (a posição
+rara deste projeto: a simulação *tem* rótulo, então dá para medir quanto um proxy sem
+rótulo concorda com a degradação verdadeira — nenhum sistema em produção consegue fazer
+essa checagem):
+
+| Proxy | Concordância de ordem (Spearman) | p exato de permutação | Passo médio mensal |
+|---|---:|---:|---:|
+| `taxa_de_aprovacao` | −1,0000 | 0,002778 | **0,0079** |
+| `psi_do_score` | +1,0000 | 0,002778 | 0,0056 |
+| `confianca_media` | −1,0000 | 0,002778 | 0,0033 |
+
+Os três **empatam** em concordância de ordem — monotonicidade perfeita contra a queda de
+AUC-ROC, com `n = 6` e o intervalo de confiança fechado saturado perto de `|rho| = 1`
+(por isso a significância vem do p-valor exato por permutação, não do intervalo). O
+desempate é por magnitude: `taxa_de_aprovacao` tem o maior passo médio mensal — é o
+proxy que mais se move por mês de degradação real —, e é o que `escolher_alarme` elege
+como o alarme de produção. Os outros dois continuam como sinal de confirmação.
+
+**A convenção de indústria para PSI nunca dispararia nesta simulação.** Recalibrando a
+mesma nula empírica que a Etapa anterior mediu para as dez features de entrada — agora
+sobre a distribuição de *score* —, o limiar de atenção convencional (0,10) fica **3,4
+vezes acima** do pior `psi_do_score` já observado (0,0291, no mês de maior degradação
+real). Um limiar calibrado pela nula (p99 = 0,000752) dispararia já no primeiro mês —
+cinco meses antes.
+
+### A API de scoring instrumentada
+
+`credito.api` serve o campeão publicado em três rotas: `/health`, `/score` e `/metrics`
+(Prometheus). A instrumentação segue a mesma disciplina de cardinalidade que o resto do
+projeto já aplica a rótulo de feature e de proxy: **o rótulo de métrica é a rota
+declarada pelo FastAPI, nunca o caminho bruto da requisição** — um scanner varrendo URLs
+aleatórias criaria uma série temporal nova por URL e esgotaria a memória do processo. A
+raspagem do próprio `/metrics` é excluída da medição que ela mesma expõe, e a latência de
+inferência (só `predict_proba`) é medida separada da latência HTTP inteira — é o que
+permite atribuir uma lentidão ao modelo ou ao servidor.
+
+**Subir a pilha de verdade corrigiu uma calibração que só o campeão real revela.** Os
+buckets de latência de inferência foram calibrados contra um modelo-dublê (sem custo real
+de árvore) e iam até 1 ms; contra o campeão publicado (XGBoost, 300 árvores) sob tráfego
+real, toda requisição estourava o bucket `+Inf` — o histograma era inútil. Remedido com
+540 chamadas reais ao campeão: p50 3,515 ms · p95 9,665 ms · p99 13,442 ms. É a mesma
+lição de sempre neste projeto: suíte verde não prova que a coisa sobe.
+
+### Cada execução do monitoramento é um run do MLflow
+
+`make monitor` registra cada execução — parâmetros (semente, janela, limiares), as
+métricas do campeão por lote, PSI por feature em série temporal (`step` = mês) e os três
+proxies sem rótulo, mais os artefatos (HTML do Evidently e o JSON consolidado). Backend
+SQLite local (`mlruns/mlflow.db`, ignorado pelo git) — o MLflow 3.x pôs o backend de
+arquivo em modo de manutenção.
+
+![Lista de execuções registradas no MLflow](docs/images/mlflow-runs.png)
+
+![Métricas e artefatos de uma execução, incluindo o PSI por feature em série temporal](docs/images/mlflow-run-detalhe.png)
+
+`make mlflow-up` sobe a UI contra o mesmo SQLite que `make monitor` grava.
+
+### A pilha Prometheus + Grafana
+
+`docker-compose.yml` sobe três serviços numa rede própria: a API de scoring, o Prometheus
+que a raspa a cada 5 s e o Grafana com **datasource e dashboard provisionados por
+arquivo** — nada clicado à mão, os dois sobem já configurados a partir de
+`docker/grafana/provisioning/` e `docker/grafana/dashboards/`.
+
+![Dashboard do Grafana com os seis painéis populados por tráfego real](docs/images/grafana-dashboard.png)
+
+**A ordem dos painéis é deliberada**, a mesma lição da seção anterior aplicada ao
+dashboard: tráfego e taxa de erro primeiro, depois latência, depois os dois alarmes
+(distribuição do score e taxa de aprovação), e só **depois** deles o PSI por feature —
+consultado como diagnóstico de origem, nunca como gatilho. Um layout que colocasse o PSI
+no topo ensinaria o oposto do que a Etapa anterior mediu: que as features de maior PSI
+explicam só 3,1% da degradação real, enquanto o concept drift — invisível a qualquer PSI
+— explica 48,0%.
+
+O painel de PSI por feature é texto, não gráfico: a métrica só existe em lote (MLflow),
+nunca por requisição na API — decisão declarada no próprio painel, não escondida.
+
+### O que esta camada não resolve
+
+A degradação real continua impossível de medir em produção — é a limitação estrutural
+que nenhuma instrumentação remove, só contorna. E o limiar de `taxa_de_aprovacao` medido
+sobre lotes de 23.584 scores não foi recalibrado para a janela de 500 requisições que a
+API expõe ao vivo — extrapolação, não medição, declarada como tal. A lista completa, com
+o porquê de cada item, está em [`docs/monitoring_plan.md`](docs/monitoring_plan.md).
+
+---
+
 ## Como executar
 
 Pré-requisitos: **Python 3.12** e **Poetry 2.x** (validado com Python 3.12.13 e Poetry
@@ -963,7 +1067,20 @@ make lint                 # ruff check + ruff format --check
 make test                 # suíte com relatório de cobertura
 make demo-contrato        # mostra o contrato bloqueando um lote adulterado
 make verificar-degradacao # degradação monotônica + o contraexperimento que a calibra
+make validar-proxies      # quanto cada proxy sem rótulo antecipa a degradação real
 ```
+
+E a pilha de observabilidade (requer `make train` antes, para ter um campeão para servir):
+
+```bash
+make observabilidade-up   # sobe API + Prometheus + Grafana via Docker Compose
+make traffic              # gera tráfego real contra /score para os painéis mostrarem algo
+make mlflow-up            # UI do MLflow contra o SQLite que `make monitor` grava
+make observabilidade-down # derruba a pilha
+```
+
+O Grafana abre em `localhost:3000` (`admin`/`admin`, só para esta demonstração local) com
+o dashboard já provisionado; o MLflow em `localhost:5000`; a API em `localhost:8000`.
 
 Rodar `make train` uma segunda vez **não falha**: o retreino reproduz o incumbente, o gate
 recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto.
@@ -1013,16 +1130,30 @@ src/credito/
 │   ├── calibration.py      Nula empírica do PSI, Benjamini-Hochberg e degradação por lote
 │   ├── causal.py           Decomposição da degradação por intervenção, com termo de interação
 │   └── gate.py             Consolidação dos lotes numa severidade e numa recomendação
-└── pipeline/
-    ├── steps.py            Gate de modelo: os 4 critérios e as 2 exceções distintas
-    ├── training.py         Encadeamento ponta a ponta do treino
-    └── monitoring.py       Orquestração do monitoramento, lote a lote
+├── pipeline/
+│   ├── steps.py            Gate de modelo: os 4 critérios e as 2 exceções distintas
+│   ├── training.py         Encadeamento ponta a ponta do treino
+│   └── monitoring.py       Orquestração do monitoramento, lote a lote, com registro no MLflow
+├── monitoring/
+│   ├── proxies.py          Sinais sem rótulo: psi_do_score, confianca_media, taxa_de_aprovacao
+│   └── validacao_de_proxy.py  Correlação de cada proxy contra a degradação real medida
+├── tracking/
+│   └── mlflow_client.py    Registra cada execução do monitoramento como um run do MLflow
+└── api/
+    ├── main.py             /health, /score, /metrics
+    ├── schemas.py          Contrato Pydantic de entrada e saída, espelhando FEATURES
+    └── metrics.py          Instrumentação Prometheus, cardinalidade controlada por rota
 
 src/credito/data/simulate.py   Os 6 lotes: 3 variáveis de data drift + 1 concept drift
 scripts/demo_contrato.py       Demonstração do bloqueio de ingestão
 scripts/verificar_degradacao.py  Guarda da monotonicidade e do contraexperimento que a calibra
+scripts/validar_proxies.py     Mede quanto cada proxy sem rótulo antecipa a degradação real
+scripts/gerar_trafego.py       Tráfego real contra a API, para os painéis terem o que mostrar
+docker/prometheus/             Config de scrape do Prometheus
+docker/grafana/                Datasource e dashboard provisionados por arquivo
 docs/model_card.md             Uso pretendido, métricas, limitações e riscos
-docs/images/                   O print do relatório de drift
+docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar e o playbook
+docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
 tests/                         Suíte espelhando a estrutura de src/
 ```
 
@@ -1094,12 +1225,23 @@ E as que a camada de monitoramento acrescenta:
   passagem para esse regime não muda a estatística — mas o resto da orquestração assume a
   janela inteira em memória.
 
+E as que a camada de observabilidade acrescenta — detalhe completo em
+[`docs/monitoring_plan.md`](docs/monitoring_plan.md):
+
+- **O limiar do alarme de produção (`taxa_de_aprovacao`) foi medido sobre lotes mensais de
+  23.584 scores, não sobre a janela de 500 requisições que a API expõe ao vivo.** A
+  granularidade real é mais fina e mais ruidosa; travar o passo médio medido (0,0079) como
+  limiar de alerta na janela de 500 é extrapolação, não medição.
+- **PSI do score e PSI por feature não são métricas Prometheus ao vivo.** Os dois rodam em
+  lote (MLflow); ligar um deles a um `Gauge`/pushgateway é decisão ainda não tomada —
+  declarada como pendente nos dois painéis do dashboard que dependeriam disso.
+  Hoje o alarme ao vivo é só `taxa_de_aprovacao`.
+- **Tracking e métricas rodam num único nó local**, sem servidor remoto de MLflow nem
+  alta disponibilidade do Prometheus/Grafana — adequado para demonstrar a camada, não
+  para operar em produção.
+
 ### Próximas etapas
 
-- **Etapa 3 — Observabilidade.** Rastreamento de experimentos, métricas de serviço em
-  Prometheus e painéis, ligando a métrica de modelo à métrica de infraestrutura. A esteira
-  de CI/CD completa entra aqui, com `make monitor` rodando periodicamente em vez de sob
-  demanda.
 - **Etapa 4 — Governança.** Análise formal de viés a partir do recorte já medido,
   documentação de conformidade e o direito de revisão humana sobre decisão automatizada. A
   decomposição causal desta etapa alimenta a documentação de causalidade que essa fase

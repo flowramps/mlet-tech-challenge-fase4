@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     models_dir: Path = PROJECT_ROOT / "models"
     metrics_dir: Path = PROJECT_ROOT / "metrics"
     reports_dir: Path = PROJECT_ROOT / "reports"
+    mlruns_dir: Path = PROJECT_ROOT / "mlruns"
+
+    # Nome do experimento MLflow que agrupa os runs do monitoramento — conjunto fechado de
+    # um elemento só, mas nomeado em vez de literal espalhado pelo chamador, pela mesma
+    # razão que `model_filename` já é campo em vez de string solta em `model.train`.
+    mlflow_experimento: str = "credito-monitoramento"
 
     # Redistribuição curada pelo OpenML do dataset da competição Kaggle "Give Me Some
     # Credit" (2011). O Kaggle exige autenticação, o que quebraria o clone limpo e o job
@@ -91,6 +97,19 @@ class Settings(BaseSettings):
     @property
     def model_path(self) -> Path:
         return self.models_dir / self.model_filename
+
+    @property
+    def mlflow_tracking_uri(self) -> str:
+        # SQLite, nunca o backend de arquivo do MLflow 3.x (em modo de manutenção) — ver
+        # o docstring de `credito.tracking.mlflow_client`.
+        return f"sqlite:///{self.mlruns_dir}/mlflow.db"
+
+    @property
+    def mlflow_artifact_location(self) -> str:
+        # Explícito, nunca implícito: sem isto o MLflow grava em `./mlruns/<id>/...`
+        # relativo ao cwd do processo, mesmo com o tracking apontando para outro lugar
+        # (ver o mesmo docstring).
+        return str(self.mlruns_dir / "artifacts")
 
 
 @lru_cache(maxsize=1)
