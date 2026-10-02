@@ -30,8 +30,8 @@ nunca interage com ele diretamente.
 
 ### Usos explicitamente fora de escopo
 
-- **Decisão de crédito totalmente automatizada, sem revisão humana.** Ver a seção de
-  conformidade.
+- **Decisão de crédito totalmente automatizada, sem revisão humana.** A lei não proíbe;
+  este projeto não recomenda. Ver a seção de conformidade.
 - **Precificação** (definição de taxa ou limite): o modelo foi calibrado para ordenar
   risco, não para produzir uma probabilidade fidedigna em valor absoluto.
 - **Populações fora da Referência**, em especial clientes sem renda declarada — o modelo
@@ -51,8 +51,11 @@ Obtido pela redistribuição do OpenML (id 46929, licença Public), que serve o 
 por URL pública com checksum verificado a cada execução. O acesso direto ao Kaggle exige
 credencial e quebraria a reprodutibilidade em clone limpo e em CI.
 
-Dados **históricos e anônimos**, sem identificador pessoal. Não há dado sensível nos termos
-do art. 5º, II da LGPD entre as dez variáveis. `age` é o único atributo protegido presente.
+Dados **históricos e pseudonimizados**: sem identificador direto, mas **não anonimizados** no
+sentido do art. 12 da LGPD — medido com k-anonimato, 53,30% das linhas da Referência são as
+únicas com aquela idade, renda e número de dependentes (ver `docs/governanca.md`). Não há
+dado sensível nos termos do art. 5º, II entre as dez variáveis. `age` é o único atributo
+protegido presente.
 
 ### Dataset de Referência
 
@@ -140,9 +143,10 @@ afirmação sem evidência.
 | 41-60 | 11.302 | 7,24% | 21,62% | 78,38% | 0,6822 | 0,304 |
 | 61+ | 6.397 | 3,22% | 7,50% | 92,50% | 0,5000 | 0,166 |
 
-**Como ler.** A taxa de recusa cai monotonicamente com a idade e a taxa de inadimplência
-real também: a diferença de tratamento acompanha uma diferença de risco observada, não é
-viés puro. Mas as proporções não batem — entre os extremos, a recusa varia **4,7×** e o
+**Como ler.** A taxa de recusa cai monotonicamente com a idade. A taxa de inadimplência
+real cai entre os extremos (8,64% → 3,22%), mas **não monotonicamente** — a faixa 26-40 tem o
+maior risco da tabela (10,58%) e a segunda maior recusa. Parte da diferença de tratamento
+acompanha uma diferença de risco observada; não é viés puro. Mas as proporções não batem — entre os extremos, a recusa varia **4,7×** e o
 risco real apenas **2,7×**. O modelo é mais severo com clientes de 18 a 25 anos do que o
 risco medido justifica.
 
@@ -153,8 +157,11 @@ Dois pontos de atenção adicionais:
 - A faixa **18-25 tem apenas 486 linhas** no teste (2,1% do conjunto). As métricas dessa
   faixa têm intervalo de confiança largo e devem ser lidas com essa ressalva.
 
-Estes números estão **medidos, não tratados**. A análise formal de *disparate impact* e
-qualquer mitigação são trabalho da etapa de governança.
+Estes números estão **medidos, não tratados**. A análise formal mede duas métricas, e elas
+discordam: pela regra dos 4/5 sobre a aprovação, **18-25 (0,7030) e 26-40 (0,7361) sofrem
+impacto adverso**; pela igualdade de oportunidade, quem sai pior é a faixa **61+, com recall
+0,2857 abaixo da 18-25**. As duas são publicadas em `metrics.json` (`equidade`) a cada
+treino, e as opções de mitigação estão em `docs/governanca.md`.
 
 ### Degradação sob drift
 
@@ -256,36 +263,46 @@ controlável. Ver as limitações abaixo.
 | Risco | Descrição | Mitigação atual | Pendente |
 |---|---|---|---|
 | **Falso positivo em escala** | Precisão de 0,2350: cerca de 3 em cada 4 recusas atingem bons pagadores. Perda de receita e de relacionamento | Recall privilegiado por decisão explícita e documentada de custo | Curva de custo para escolher o limiar |
-| **Viés etário** | Recusa varia 4,7× entre faixas contra 2,7× de variação no risco real. Severidade desproporcional com jovens | Medido e publicado a cada execução em `metrics.json` | Análise formal de *disparate impact* e mitigação |
+| **Viés etário** | Recusa varia 4,7× entre faixas contra 2,7× de variação no risco real. Severidade desproporcional com jovens | Medido e publicado a cada execução em `metrics.json`, com as duas métricas formais: razão 4/5 (18-25 e 26-40 abaixo de 0,80) e igualdade de oportunidade (61+ com o pior recall) | Mitigação escolhida entre as opções de `docs/governanca.md`, medida pelas duas métricas antes e depois |
 | **Exclusão de quem não declara renda** | 19,82% do bruto. Hoje bloqueado no contrato, não pontuado | Bloqueio explícito e auditável, em vez de pontuação sobre dado inventado | Política de imputação ou modelo dedicado |
 | **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a decomposição causal, com veredito consolidado; a API de scoring expõe `taxa_de_aprovacao` ao vivo (Prometheus/Grafana) — o proxy sem rótulo que mais se moveu por mês de degradação real nesta simulação (ver `docs/monitoring_plan.md`) | Medição sobre lote de produção real, com a defasagem de rótulo modelada; recalibrar o limiar do alarme para a janela de 500 requisições que a API de fato expõe |
 | **Alarmar na variável errada** | PSI aponta onde a distribuição se moveu, não quanto custou. As duas variáveis de PSI mais alto explicam 3,1% da degradação medida | O relatório consolidado publica a decomposição causal **antes** da tabela de PSI, e o resumo do gate carrega a ressalva embutida | Detecção de concept drift sem rótulo |
 | **Dado quebrado na ingestão** | Nulo, sentinela, duplicata, valor implausível | Contrato de 6 regras bloqueando antes do treino e da inferência | Aplicação do mesmo contrato no endpoint de serviço |
 | **Variável correlacionada com atributo protegido** | Renda e número de dependentes podem carregar sinal de gênero, raça ou região não observados | Nenhuma | Auditoria de *proxy* para atributos protegidos não presentes no dado |
+| **Reidentificação da Referência** | Sem CPF, mas 53,30% das linhas são únicas em idade + renda + dependentes: quem conhece esses três fatos acha a linha e o rótulo de inadimplência | Tratada como dado pessoal pseudonimizado; a API descarta identificador enviado a mais; `generalizar` reduz grupos menores que 5 de 75,62% para 0,01% das linhas | Aplicar generalização e supressão antes de conservar ou compartilhar a Referência |
 | **Uso fora do escopo** | Interpretar a saída como precificação ou como característica da pessoa | Este documento | Contrato de uso junto à equipe consumidora |
 
 ---
 
 ## Conformidade — decisão automatizada e revisão humana
 
-A **Lei nº 13.709/2018 (LGPD), art. 20**, garante ao titular o direito de solicitar revisão
-de decisões tomadas unicamente com base em tratamento automatizado de dados pessoais que
-afetem seus interesses — concessão de crédito é o exemplo nomeado no próprio caput. O mesmo
-artigo assegura o direito a informação sobre os critérios e procedimentos utilizados.
+A **Lei nº 13.709/2018 (LGPD), art. 20**, garante ao titular o direito de solicitar a revisão
+de decisões tomadas unicamente com base em tratamento automatizado que afetem seus
+interesses, *"incluídas as decisões destinadas a definir o seu perfil pessoal, profissional,
+de consumo e de crédito"*. O §1º obriga o controlador a informar os critérios e
+procedimentos da decisão automatizada. A Lei do Cadastro Positivo (Lei nº 12.414/2011,
+art. 5º, IV e VI) dá ao cadastrado os mesmos dois direitos no contexto de crédito.
 
-Consequências diretas para este modelo:
+**A redação vigente não exige que a revisão seja humana.** O texto original da LGPD dizia
+*"por pessoa natural"*; a expressão foi retirada pela Medida Provisória nº 869/2018, mantida
+fora pela Lei nº 13.853/2019, e o parágrafo que a reintroduziria foi vetado.
 
-1. **Nenhuma recusa pode ser final sem caminho de revisão humana.** O modelo produz uma
-   recomendação, não um veredito.
-2. **Toda decisão precisa ser explicável ao titular** em termos dos critérios utilizados.
+Consequências para este modelo:
+
+1. **Nenhuma recusa deve ser final sem caminho de revisão humana.** É decisão deste
+   projeto, **mais rigorosa que a lei** — o modelo produz uma recomendação, não um veredito,
+   e um modelo cuja equidade aponta direções opostas conforme a métrica não deveria ter
+   suas recusas revistas por outro procedimento automatizado com os mesmos critérios.
+2. **Os critérios precisam ser informáveis ao titular** — estão em `docs/governanca.md`,
+   seção de causalidade, com o que os faz deixar de valer.
 3. **A auditabilidade é requisito, não conveniência.** É por isso que a política de limpeza
    contabiliza cada descarte por motivo, o histórico de treinos é *append-only* e o recorte
-   etário é publicado a cada execução.
+   etário e as métricas de equidade são publicados a cada execução.
 
-Esta etapa estabelece a **base técnica** que torna esses direitos exequíveis: dado
-rastreável, decisão registrada, métrica por grupo medida. O processo de revisão em si —
-fluxo de contestação, prazos, explicabilidade individual da predição e documentação de
-conformidade — é desenvolvido na etapa de governança.
+O que já existe: dado rastreável, decisão de **treino** registrada, métrica por grupo
+medida. O que ainda não existe é o registro da decisão de **crédito**: a API responde e não
+grava nada, então uma recusa passada não pode ser reconstruída para revisão. O esquema
+desse registro e o prazo de retenção estão especificados em `docs/governanca.md`.
 
 ---
 
