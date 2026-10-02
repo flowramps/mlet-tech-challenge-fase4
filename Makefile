@@ -1,7 +1,7 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
 .PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
-	validar-proxies mlflow-up api observabilidade-up observabilidade-down traffic
+	validar-proxies auditar-privacidade mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -39,6 +39,9 @@ verificar-degradacao: ## Confere a degradação monotônica do campeão e a cali
 
 validar-proxies:  ## Mede quanto cada proxy sem rótulo antecipa a degradação real do campeão
 	poetry run python scripts/validar_proxies.py
+
+auditar-privacidade: ## Mede o risco de reidentificação da Referência e o efeito da generalização
+	poetry run python scripts/auditar_privacidade.py
 
 mlflow-up:        ## Sobe a UI do MLflow contra o mesmo SQLite que `make monitor` grava
 	MLFLOW_DISABLE_TELEMETRY=true MLFLOW_DISABLE_AGENT_HINT=1 \
