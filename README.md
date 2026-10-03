@@ -10,6 +10,76 @@
 
 ---
 
+## Em uma tela
+
+| | Medido |
+|---|---|
+| **Baseline** | XGBoost com AUC-PR **0,3716** — 5,4× o acaso — e recall da classe positiva **0,6915** |
+| **Contrato** | seis regras; um lote adulterado é bloqueado com a contagem exata de cada defeito |
+| **Degradação silenciosa** | sob seis meses de mudança simulada, o recall cai **45,1%** e o poder discriminativo acima do piso, **59,2%** — sem uma única linha inválida |
+| **De onde ela vem** | concept drift responde por **48,0%** da queda; as duas variáveis de maior PSI, por **3,1%** |
+| **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); o corte convencional de PSI nunca dispararia |
+| **Privacidade** | sem CPF, mas **53,30%** das pessoas são únicas em idade + renda + dependentes; generalizar reduz a exposição a **0,01%** |
+| **Equidade** | duas métricas formais que **discordam**: os 4/5 apontam os jovens, a igualdade de oportunidade aponta os idosos |
+| **Engenharia** | `make reproduzir` regenera todo número deste README; imagem de 1,25 GB sem vulnerabilidade HIGH corrigível; cobertura de 98% com piso na CI |
+
+## Onde está cada exigência
+
+| Critério (peso) | O que se pede | Onde está | Como verificar |
+|---|---|---|---|
+| **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
+| **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · `reports/drift_mes_*.html` | `make monitor` |
+| **Observabilidade e logs** (20%) | métricas de saúde e alertas de drift visíveis; rastreamento; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic` · `make mlflow-up` |
+| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) | `make auditar-privacidade` · `equidade` em `metrics/metrics.json` |
+| **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
+| **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    subgraph T["Treino — make train"]
+        A["Dataset público<br/>(OpenML, md5)"] --> B["Limpeza auditável"]
+        B --> C{"Contrato<br/>6 regras"}
+        C -- inválido --> X["Ingestão<br/>bloqueada"]
+        C -- válido --> D["2 candidatos"] --> E{"Gate de<br/>promoção"}
+        E -- promove --> F[("Campeão<br/>model.joblib")]
+    end
+    subgraph M["Monitoramento — make monitor"]
+        F --> G["6 lotes de produção<br/>simulados"] --> H["PSI e KS próprios<br/>+ Evidently"] --> J{"Gate de drift"}
+        G --> K["Degradação real +<br/>atribuição causal"]
+        J --> L[("MLflow")]
+        K --> L
+    end
+    subgraph P["Produção — make observabilidade-up"]
+        F --> N["API /score"] --> O["/metrics"] --> Q["Prometheus"] --> R["Grafana"]
+    end
+    subgraph G4["Governança"]
+        F --> S["Equidade:<br/>4/5 e oportunidade"]
+        B --> U["Risco de<br/>reidentificação"]
+    end
+```
+
+O contrato bloqueia dado **inválido**; o gate de drift alerta sobre dado **deslocado**, que
+continua válido — as duas camadas respondem perguntas diferentes, e é essa separação que o
+resto do documento sustenta com número.
+
+## Índice
+
+1. [O problema](#o-problema)
+2. [Dados](#dados)
+3. [Contrato de dados](#contrato-de-dados)
+4. [Modelo baseline](#modelo-baseline)
+5. [Gate de qualidade](#gate-de-qualidade)
+6. [Monitoramento de drift](#monitoramento-de-drift)
+7. [Observabilidade em produção](#observabilidade-em-produção)
+8. [Governança e proteção de dados](#governança-e-proteção-de-dados)
+9. [Como executar](#como-executar)
+10. [Estrutura do projeto](#estrutura-do-projeto)
+11. [Roadmap](#roadmap)
+
+---
+
 ## O problema
 
 Uma fintech tem um modelo de *credit scoring* em produção e suspeita que ele vem
