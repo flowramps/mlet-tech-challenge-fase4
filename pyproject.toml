@@ -25,18 +25,15 @@ dependencies = [
     "pydantic-settings (>=2.6,<3.0)",
     "httpx (>=0.27,<1.0)",
     "prometheus-client (>=0.21,<1.0)",
-    "pandera (>=0.33.1,<0.34)",
     "scipy (>=1.13,<2.0)",
     "xgboost (>=2.1,<3.0)",
-    "evidently (>=0.7.23,<0.8)",
-    "mlflow (>=3.16,<4.0)",
 ]
 
 [tool.poetry]
 packages = [{ include = "credito", from = "src" }]
 
 # Grupos separados de `main`: a imagem instala `--only main` e não carrega pytest nem
-# jupyter. É o que mantém a superfície da imagem pequena.
+# ruff. É o que mantém a superfície da imagem pequena.
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
 pytest-cov = "^6.0"
@@ -46,9 +43,14 @@ pytest-cov = "^6.0"
 ruff = "0.7.4"
 pre-commit = "^4.0"
 
-[tool.poetry.group.notebooks.dependencies]
-jupyter = "^1.1"
-matplotlib = "^3.9"
+# O que só o pipeline usa — contrato de dados, relatório de drift e rastreamento — fica
+# fora de `main`: a API de scoring não importa nenhum dos três (medido pelos módulos que
+# `credito.api.main` carrega), e a imagem instala `--only main`. Grupo não opcional, então
+# `poetry install` local e na CI continuam trazendo os três.
+[tool.poetry.group.pipeline.dependencies]
+pandera = ">=0.33.1,<0.34"
+evidently = ">=0.7.23,<0.8"
+mlflow = ">=3.16,<4.0"
 
 [build-system]
 requires = ["poetry-core>=2.0"]

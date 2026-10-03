@@ -18,8 +18,9 @@ RUN pip install "poetry==${POETRY_VERSION}"
 COPY pyproject.toml poetry.lock README.md ./
 COPY src ./src
 
-# --only main: a imagem não carrega pytest, ruff nem jupyter — só o que credito.api
-# precisa para responder requisições.
+# --only main: a imagem não carrega pytest nem ruff (grupo `dev`), nem MLflow, Evidently e
+# Pandera (grupo `pipeline`) — só o que credito.api precisa para responder requisições.
+# `tests/test_ferramental.py` trava que a API nunca passe a importar algo de fora de `main`.
 RUN poetry install --only main --no-interaction
 
 
@@ -38,15 +39,20 @@ RUN useradd --create-home --uid 1000 appuser
 COPY --from=builder /app/.venv /app/.venv
 COPY src ./src
 
-# O campeão publicado por `make train` já existe no repo (models/model.joblib, 755 KB) — a
-# imagem o copia direto, sem repetir o treino no build. `Settings.model_path`
+# O campeão publicado por `make train` (models/model.joblib, 755 KB — fora do git, gerado
+# pelo treino; o job de build da CI treina antes de construir) é copiado direto, sem repetir
+# o treino no build. `Settings.model_path`
 # (src/credito/config.py) resolve a partir de `PROJECT_ROOT = Path(__file__).resolve().
 # parents[2]`: com o código em /app/src/credito/config.py, isso é /app — o mesmo WORKDIR
 # desta imagem — então o default (models/model.joblib) já aponta para o que a linha abaixo
 # copia, sem precisar declarar CREDITO_MODELS_DIR no ambiente.
 COPY models/ ./models/
 
-RUN chown -R appuser:appuser /app
+# Sem `chown`: código, virtualenv e modelo ficam de root, legíveis pelo `appuser` e não
+# graváveis por ele. O processo só lê (com PYTHONDONTWRITEBYTECODE nem `.pyc` ele grava), e
+# um processo comprometido não consegue reescrever o próprio código nem trocar o modelo.
+# Um `RUN chown -R` aqui também duplicava o virtualenv inteiro numa camada nova — medido:
+# 1,65 GB a mais na imagem e minutos a mais em todo build.
 USER appuser
 
 EXPOSE 8000
