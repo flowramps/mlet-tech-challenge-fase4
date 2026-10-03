@@ -7,6 +7,7 @@ pedindo "mantenha estes três valores iguais" não mantém nada igual; o teste m
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 import tomllib
@@ -220,3 +221,15 @@ def test_regra_de_alerta_usa_o_limiar_e_a_janela_medidos_no_codigo():
     janela = re.search(r"credito_taxa_de_aprovacao_amostras >= (\d+)", expressao.group(1))
     assert limiar and float(limiar.group(1)) == LIMIAR_DO_ALARME
     assert janela and int(janela.group(1)) == JANELA_TAXA_DE_APROVACAO
+
+    # E a linha tracejada do painel do Grafana: um limiar desenhado num valor diferente do
+    # que dispara ensinaria a ler o gráfico errado.
+    painel = next(
+        p
+        for p in json.loads(
+            (RAIZ / "docker/grafana/dashboards/credito-observabilidade.json").read_text("utf-8")
+        )["panels"]
+        if p.get("title", "").startswith("Taxa de aprovação")
+    )
+    degraus = painel["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    assert [d["value"] for d in degraus if d["value"] is not None] == [LIMIAR_DO_ALARME]

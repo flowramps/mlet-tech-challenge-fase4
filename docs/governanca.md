@@ -116,10 +116,11 @@ regime da lei. O que o serviço faz com ele:
 
 | O que | Onde fica | Contém dado pessoal? |
 |---|---|---|
-| O vetor de features da requisição | memória do processo, até a resposta | **sim** — descartado ao responder; nunca gravado |
+| O vetor de features da requisição | memória do processo, até a resposta | **sim** — fora o registro de decisão, não é gravado em lugar nenhum |
+| **Registro de decisão** | `decisoes/decisoes.jsonl` (no container, o volume `decisoes`) | **sim** — o vetor de features de cada decisão, **sem identificador nenhum**; retenção de 5 anos (seção 3) |
 | Log da aplicação | stdout do container | não — a aplicação só loga o carregamento do modelo; o log de acesso do uvicorn grava IP e porta de quem chamou, método, rota e status, nunca o corpo. Quem chama é o sistema de origem, não o titular — verificado enviando um CPF: zero ocorrências no log |
 | Métricas Prometheus | `/metrics` | não — rótulos vêm de conjunto fechado (rota, método, status), nunca da entrada |
-| Janela da taxa de aprovação | memória, últimas 500 respostas | não — só probabilidades, sem identidade; perdida ao reiniciar |
+| Janela da taxa de aprovação | memória, últimas 2.000 decisões | não — só probabilidades, sem identidade; perdida ao reiniciar |
 
 ### 2.3 Os artefatos gerados
 
@@ -153,7 +154,7 @@ informação de adimplemento por até **15 anos** (Lei nº 12.414/2011, art. 14)
 | Dado | Retenção | Depois | Fundamento |
 |---|---|---|---|
 | Vetor de features da requisição | **nenhuma** — descartado ao responder | — | necessidade (art. 6º, III) |
-| Registro de decisão¹ (identificador pseudônimo do sistema de origem, vetor, score, decisão, limiar, versão do modelo, data) | **5 anos** a partir da decisão | eliminação | revisão da decisão (art. 20; Lei nº 12.414, art. 5º, VI) e prestação de contas (art. 6º, X); prazo alinhado ao teto do CDC para informação negativa |
+| Registro de decisão¹ (`id_decisao`, data, vetor de features, probabilidade, decisão, limiar, candidato, sha256 do modelo) | **5 anos** a partir da decisão | eliminação | revisão da decisão (art. 20; Lei nº 12.414, art. 5º, VI) e prestação de contas (art. 6º, X); prazo alinhado ao teto do CDC para informação negativa |
 | Referência (treino) | enquanto o modelo treinado nela estiver em produção, mais um ciclo de retreino | generalização + supressão (seção 2.1), ou eliminação | finalidade (art. 6º, I); conservação só anonimizada (art. 16, IV) |
 | `models/`, `metrics/`, `reports/`, `mlruns/` | enquanto o modelo correspondente estiver em produção, mais um ciclo | eliminação | auditoria do campeão contra o incumbente; agregados, sem linha individual |
 
@@ -163,11 +164,22 @@ alcançada); o prazo concreto é do controlador, e está declarado aqui para pod
 contestado. A razão do "mais um ciclo": o gate de promoção compara o candidato novo contra
 o incumbente, e auditar essa comparação depois exige o incumbente e os dados dele.
 
-¹ **O registro de decisão não existe nesta entrega.** A API responde e não grava nada — o
-que é bom para a minimização e ruim para a revisão: sem registro, uma decisão passada não
-pode ser reconstruída, e o direito do art. 20 fica sem objeto. É o próximo componente a
-construir, com o esquema da tabela acima e com o identificador pseudônimo gerado no
-sistema de origem, nunca o CPF.
+¹ **Como o registro funciona** (`credito.governanca.decisoes`). Cada `/score` gera um
+`id_decisao` e o devolve na resposta; **a API não recebe identificador nenhum, nem
+pseudônimo** — é o sistema de origem que guarda o vínculo entre o id e a pessoa. Isso é
+mais forte que gravar um pseudônimo do cliente: o registro sozinho não liga decisão a
+ninguém. A decisão é gravada em JSONL append-only, com `fsync`, **antes** de ser devolvida:
+se a gravação falha, a API responde `503` e nenhuma decisão é emitida — uma decisão sem
+registro não poderia ser revista. O sha256 do arquivo do modelo liga cada decisão ao modelo
+exato que a tomou. A retenção é executável: `make expurgar-decisoes` remove o que passou de
+5 anos (uma decisão exatamente no limite ainda fica), e é feito para rodar agendado — um
+prazo que nada executa não elimina nada (art. 16). No container, o diretório de decisões é o
+único caminho gravável; código e modelo são só-leitura para o processo.
+
+Verificado contra mutação, inclusive a corrida que mais importa: uma decisão gravada
+enquanto o expurgo reescreve o arquivo iria para o arquivo antigo e sumiria na troca. O
+teste força essa corrida de forma determinística; ele falha 5 vezes em 5 sem a trava e
+passa 5 em 5 com ela.
 
 ---
 
@@ -281,8 +293,9 @@ Três consequências para governança:
    com rótulo atrasado para saber **quanto** — não **por quê**.
 
 O que o projeto **não** entrega: explicação de uma decisão individual (por que *este*
-pedido foi recusado). Os critérios acima são globais. A explicação individual é o
-complemento natural do registro de decisão da seção 3.
+pedido foi recusado). Os critérios acima são globais. O registro de decisão (seção 3) já
+guarda tudo o que essa explicação exigiria — as entradas e o modelo exato —; a explicação
+em si é a continuidade natural dele.
 
 ---
 
@@ -290,10 +303,10 @@ complemento natural do registro de decisão da seção 3.
 
 | Direito | Fundamento | Como é atendido | O que falta |
 |---|---|---|---|
-| Confirmação e acesso | LGPD, art. 18, I e II; Lei nº 12.414, art. 5º, II | No sistema de origem, que detém a identidade; o serviço de scoring não guarda dado do titular | — |
+| Confirmação e acesso | LGPD, art. 18, I e II; Lei nº 12.414, art. 5º, II | No sistema de origem, que detém a identidade e o `id_decisao` de cada pedido; com ele, `make consultar-decisao` devolve o que o serviço de scoring gravou | — |
 | Correção | LGPD, art. 18, III; Lei nº 12.414, art. 5º, III | Correção na origem e nova pontuação; o contrato de dados (`credito.contracts`) já bloqueia o dado inválido antes do modelo | — |
 | Informação sobre critérios | LGPD, art. 20, §1º; Lei nº 12.414, art. 5º, IV | Este documento, a seção 5 e o model card | Explicação por decisão individual |
-| **Revisão de decisão automatizada** | LGPD, art. 20; Lei nº 12.414, art. 5º, VI | Ver abaixo | Registro de decisão (seção 3) |
+| **Revisão de decisão automatizada** | LGPD, art. 20; Lei nº 12.414, art. 5º, VI | Registro de decisão (seção 3) e reconstrução por `make consultar-decisao` — ver abaixo | Fluxo de revisão humana do controlador |
 | Oposição | LGPD, art. 18, §2º | Pelo controlador, no canal do encarregado | — |
 | Petição à autoridade | LGPD, art. 18, §1º | Direito do titular, independente da arquitetura | — |
 
@@ -312,12 +325,15 @@ critérios. A revisão precisa de alguém que possa decidir **contra** o modelo.
 
 O que torna essa revisão possível hoje e o que ainda falta:
 
-- **Hoje:** o modelo produz probabilidade e decisão; o limiar é explícito na resposta da
-  API; os critérios estão documentados; a métrica por faixa é publicada a cada treino.
-- **Falta:** o registro de decisão (seção 3), sem o qual uma recusa passada não pode ser
-  reconstruída, e a indicação do encarregado pelo tratamento, cuja identidade e contato a
-  lei manda divulgar publicamente (art. 41, §1º) — atribuição do controlador que opera o
-  modelo, não do código.
+- **Hoje:** cada decisão é registrada antes de ser emitida, e
+  `make consultar-decisao ID=<id_decisao>` a reconstrói: mostra as entradas, a probabilidade,
+  o limiar e o modelo, e — se o modelo publicado ainda é o mesmo, pelo sha256 — **repontua e
+  confere** que o resultado é idêntico. Verificado com o campeão real: uma recusa
+  reconstruída idêntica até o último dígito. Não há rota HTTP para isso de propósito: o
+  registro tem dado pessoal, e a API não tem autenticação; a consulta roda no servidor.
+- **Falta, e é do controlador, não do código:** o fluxo humano de revisão (quem revê, em
+  que prazo, como a decisão revista volta ao titular) e a indicação do encarregado pelo
+  tratamento, cuja identidade e contato a lei manda divulgar publicamente (art. 41, §1º).
 
 ---
 
@@ -326,11 +342,10 @@ O que torna essa revisão possível hoje e o que ainda falta:
 O que esta etapa deixa especificado para a operação em produção, na ordem em que um
 depende do outro:
 
-1. **Registro de decisão** com identificador pseudônimo, no esquema da seção 3 — a peça
-   que dá objeto ao direito de revisão.
-2. **Explicação individual** sobre esse registro.
-3. **Mitigação de viés** escolhida entre as opções da seção 4, aplicada com as duas
+1. **Explicação individual** sobre o registro de decisão, que já guarda as entradas e o
+   modelo exato de cada decisão.
+2. **Mitigação de viés** escolhida entre as opções da seção 4, aplicada com as duas
    métricas medidas antes e depois, e passando pelo mesmo gate de promoção de qualquer
    candidato.
-4. **Relatório de impacto à proteção de dados** (art. 5º, XVII; art. 38), que este
+3. **Relatório de impacto à proteção de dados** (art. 5º, XVII; art. 38), que este
    documento já estrutura: tipos de dados, metodologia, riscos medidos e mitigação.

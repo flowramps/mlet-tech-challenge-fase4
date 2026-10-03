@@ -6,7 +6,6 @@ __pycache__/
 .coverage
 htmlcov/
 .env
-.claude/
 
 # Artefatos reproduzíveis por `make train` — não versionados.
 # A barra inicial ancora o padrão na raiz do repositório: sem ela, `data/` também

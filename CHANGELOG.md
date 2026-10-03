@@ -5,6 +5,39 @@ versão tem uma tag no commit de merge correspondente (`git checkout v0.2.0` dev
 repositório exatamente como a Etapa 2 o deixou). Os números citados abaixo são os medidos
 na própria etapa; os atuais estão no README.
 
+## [1.0.0] — as dívidas declaradas, fechadas
+
+As duas lacunas que a documentação das etapas declarava — e que impediam afirmar que o
+alarme funciona e que o direito de revisão tem objeto.
+
+### Adicionado
+- **Registro de decisão de crédito** (`credito.governanca.decisoes`): cada `/score` devolve
+  um `id_decisao` e grava a decisão antes de emiti-la — entradas, probabilidade, limiar e
+  sha256 do modelo, sem identificador nenhum. Sem registro, sem decisão: falha de gravação
+  vira 503. `make consultar-decisao` reconstrói e repontua (recusa real reconstruída
+  idêntica); `make expurgar-decisoes` executa a retenção de 5 anos. No container, o único
+  caminho gravável.
+- **Calibração do alarme ao vivo** (`make calibrar-alarme`): nula da taxa de aprovação por
+  tamanho de janela, limiar com 1% de falso alarme e poder por mês de drift. A nula do PSI
+  do score, antes de um script descartado, sai do mesmo comando.
+- **Regras de alerta no Prometheus**, provisionadas por arquivo e testadas com `promtool
+  test rules` no CI: taxa de aprovação abaixo do limiar calibrado com a janela cheia, e 5xx
+  sustentado (que inclui o 503 de "sem registro, sem decisão").
+- `make traffic LOTE=mes_06`: tráfego com linhas reais de um mês com drift. Visto ao vivo:
+  taxa de 79,9% com o mês 0, 74,8% com o mês 6, alerta disparado.
+
+### Alterado
+- Janela da taxa de aprovação de 500 para 2.000 decisões. Medido: com 500, o ruído (1,8
+  p.p.) era maior que a queda de um mês inteiro (0,79 p.p.) e o alarme pegava só 68,1% das
+  janelas no mês 6; com 2.000, pega 79,5% no mês 3 e 94,1% no mês 4.
+- O painel de taxa de aprovação desenha o limiar calibrado.
+
+### Corrigido
+- O plano de monitoramento numerava os painéis numa ordem diferente da do dashboard, e o
+  playbook mandava olhar o painel errado.
+- Documentos afirmavam que o vetor de features nunca era gravado e que o serviço não
+  guardava dado do titular — falso desde o registro de decisão; reescritos.
+
 ## [0.5.0] — maturidade e reprodutibilidade
 
 Revisão do projeto inteiro depois das quatro etapas, para quem chega ao repositório sem
@@ -93,7 +126,8 @@ contexto conseguir entendê-lo e reproduzi-lo.
 - Gate de promoção com pisos medidos e duas exceções distintas — falha contra "nada a fazer".
 - Recorte de métricas por faixa etária.
 
-[0.5.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.4.0...HEAD
+[1.0.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.5.0...v1.0.0
+[0.5.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.1.0...v0.2.0

@@ -72,48 +72,7 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   CPU do container, ou um candidato promovido com custo de inferência maior) — nunca rede
   ou serialização, que este número exclui por construção.
 
-### 4. Taxa de aprovação — o alarme primário
-
-- **Métrica:** `credito_taxa_de_aprovacao` (Gauge), recalculada a cada requisição sobre
-  uma janela deslizante das últimas `JANELA_TAXA_DE_APROVACAO = 500` respostas, via
-  `credito.monitoring.proxies.taxa_de_aprovacao` — nunca uma segunda implementação do
-  corte de limiar.
-- **Por que este é o alarme, e não outro:** a validação de proxies (`make validar-proxies`) mediu os três sinais sem rótulo
-  contra a degradação real dos seis lotes simulados. Os três empatam em concordância de
-  ordem (Spearman rho = ±1,0000 contra AUC-ROC e contra lift acima do piso, **p exato de
-  permutação 0,002778**, n=6 — o intervalo de confiança fechado satura perto de `|rho|=1`
-  independente de `n` e por isso não decide nada aqui, só o p exato). O desempate é por
-  magnitude: `taxa_de_aprovacao` tem o maior passo médio mensal (**0,0079**, contra 0,0056
-  de `psi_do_score` e 0,0033 de `confianca_media`) — é o proxy que mais se move por mês de
-  degradação real, o que faz dele o sinal mais forte para um alarme binário.
-- **Faixa medida nos seis lotes** (23.584 scores por lote, campeão real, sem retreino):
-
-  | Lote | Taxa de aprovação | AUC-ROC real |
-  |---|---:|---:|
-  | mês 1 | 78,50% | 0,8109 |
-  | mês 2 | 77,53% | 0,7686 |
-  | mês 3 | 76,73% | 0,7279 |
-  | mês 4 | 76,06% | 0,6992 |
-  | mês 5 | 75,29% | 0,6645 |
-  | mês 6 | 74,55% | 0,6342 |
-
-  Queda de 3,94 pontos percentuais em 6 meses (−5,02% relativo), passo médio 0,79 p.p./mês.
-- **Dívida declarada sobre o limiar operacional:** a validação acima mede taxa de
-  aprovação **agregada por mês, sobre lotes de 23.584 scores**. A API expõe a mesma
-  métrica sobre uma janela de **500 requisições** — uma granularidade muito mais fina e,
-  portanto, mais ruidosa. A variância natural de `taxa_de_aprovacao` numa janela de 500
-  sob tráfego estável (sem drift nenhum) **não foi calibrada** — travar os 0,79 p.p./mês
-  medidos como limiar de alerta na janela de 500 é extrapolação, não medição. Mesma
-  categoria de dívida que `psi_atencao`/`psi_critico` já assumem no gate de features:
-  declarada aqui, não escondida. A nula da janela de 500 precisa ser calibrada antes de travar um número de
-  produção.
-- **Quando disparar:** confirmar que não é mudança de configuração (o `limiar` de decisão
-  mudou?) nem uma fatia de tráfego atipicamente diferente (ex.: um único cliente
-  disparando um volume fora do padrão); comparar com a distribuição do score (painel 5);
-  se persistir, rodar `make validar-proxies` para o número calibrado sobre a granularidade
-  medida antes de escalar.
-
-### 5. Distribuição do score — o modelo mudou o que devolve?
+### 4. Distribuição do score — o modelo mudou o que devolve?
 
 - **Métrica:** `credito_score_distribution_bucket` — histograma bruto da probabilidade de
   inadimplência devolvida, acumulado desde a subida do processo.
@@ -148,7 +107,73 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   | mês 6 | 0,029091 | 38,7x acima | 3,4x abaixo |
 
 - **Quando disparar** (uma vez ligado a uma métrica ao vivo — ver ressalva acima): sinal
-  de confirmação para o alarme do painel 4, não substituto dele.
+  de confirmação para o alarme do painel 5, não substituto dele.
+
+### 5. Taxa de aprovação — o alarme primário
+
+- **Métrica:** `credito_taxa_de_aprovacao` (Gauge), recalculada a cada decisão sobre uma
+  janela deslizante das últimas `JANELA_TAXA_DE_APROVACAO = 2.000` decisões, via
+  `credito.monitoring.proxies.taxa_de_aprovacao` — nunca uma segunda implementação do
+  corte de limiar. `credito_taxa_de_aprovacao_amostras` diz quantas decisões a janela já
+  tem.
+- **Por que este é o alarme, e não outro:** a validação de proxies (`make validar-proxies`) mediu os três sinais sem rótulo
+  contra a degradação real dos seis lotes simulados. Os três empatam em concordância de
+  ordem (Spearman rho = ±1,0000 contra AUC-ROC e contra lift acima do piso, **p exato de
+  permutação 0,002778**, n=6 — o intervalo de confiança fechado satura perto de `|rho|=1`
+  independente de `n` e por isso não decide nada aqui, só o p exato). O desempate é por
+  magnitude: `taxa_de_aprovacao` tem o maior passo médio mensal (**0,0079**, contra 0,0056
+  de `psi_do_score` e 0,0033 de `confianca_media`) — é o proxy que mais se move por mês de
+  degradação real, o que faz dele o sinal mais forte para um alarme binário.
+- **Faixa medida nos seis lotes** (23.584 scores por lote, campeão real, sem retreino):
+
+  | Lote | Taxa de aprovação | AUC-ROC real |
+  |---|---:|---:|
+  | mês 1 | 78,50% | 0,8109 |
+  | mês 2 | 77,53% | 0,7686 |
+  | mês 3 | 76,73% | 0,7279 |
+  | mês 4 | 76,06% | 0,6992 |
+  | mês 5 | 75,29% | 0,6645 |
+  | mês 6 | 74,55% | 0,6342 |
+
+  Queda de 3,94 pontos percentuais em 6 meses (−5,02% relativo), passo médio 0,79 p.p./mês.
+- **O limiar e a janela, medidos** (`make calibrar-alarme`). A validação acima é sobre lotes
+  mensais de 23.584 decisões; a API lê uma janela muito menor e, portanto, mais ruidosa. Um
+  limiar herdado da escala mensal não diria nada sobre ela — então a janela foi calibrada:
+  sorteando janelas do mês 0, sem drift, a nula mostra quanto a taxa oscila só por acaso; o
+  limiar fica na cauda de 1% de falso alarme; e em cada mês de drift mede-se que fração das
+  janelas cai abaixo dele.
+
+  | Janela | Desvio sem drift | Limiar | Mês 1 | Mês 2 | Mês 3 | Mês 4 | Mês 5 | Mês 6 |
+  |---:|---:|---:|---:|---:|---:|---:|---:|---:|
+  | 500 | 1,80 p.p. | 0,7560 | 5,7% | 13,9% | 25,4% | 38,7% | 54,5% | 68,1% |
+  | **2.000** | 0,89 p.p. | **0,7755** | 14,9% | 48,9% | **79,5%** | **94,1%** | 99,3% | 100,0% |
+  | 5.000 | 0,56 p.p. | 0,7828 | 35,0% | 89,8% | 99,5% | 100,0% | 100,0% | 100,0% |
+
+  **A janela era de 500, por convenção — e era fraca.** O ruído dela (1,8 p.p.) é maior que
+  a queda de um mês inteiro de degradação (0,79 p.p.): mesmo no mês 6, com a AUC-ROC 24,7%
+  abaixo, um terço das janelas não disparava. Passou a **2.000**, a menor janela medida que
+  dispara na maioria das janelas a partir do mês 3. A de 5.000 detecta antes, ao custo de
+  2,5x mais decisões para encher a janela; a escolha certa depende do volume de tráfego, que
+  este projeto não mede — a tabela está aqui para quem operar decidir pelo próprio volume.
+  A taxa de 1% de falso alarme por janela é convenção declarada, como o alfa de 0,05.
+- **A regra de alerta** (`docker/prometheus/alertas.yml`, provisionada por arquivo):
+  `TaxaDeAprovacaoAbaixoDoLimiarCalibrado` dispara com a taxa abaixo de 0,7755 **e** a
+  janela cheia (2.000 decisões), sustentado por 5 minutos — o `for` é convenção
+  operacional contra pico isolado, não medição. Testada com `promtool test rules`
+  (`alertas_test.yml`, no CI): dispara no caso que deve, e não dispara com janela
+  incompleta nem exatamente no limiar. Um teste trava limiar e janela iguais entre o código,
+  a regra e a linha tracejada do painel; `make calibrar-alarme` falha se um retreino do
+  campeão mudar o limiar medido.
+- **Visto disparando, ao vivo:** com a pilha de pé, 2.500 decisões do mês 0
+  (`make traffic LOTE=mes_00`) deixaram a taxa em 79,9% e nenhum alerta; 2.500 do mês 6
+  (`LOTE=mes_06`) a levaram a 74,8%, e o alerta passou a *firing* depois dos 5 minutos.
+
+  ![Alerta da taxa de aprovação disparado no Prometheus](images/prometheus-alertas.png)
+- **Quando disparar:** confirmar que não é mudança de configuração (o `limiar` de decisão
+  mudou?) nem uma fatia de tráfego atipicamente diferente (ex.: um único cliente
+  disparando um volume fora do padrão); comparar com a distribuição do score (painel 4);
+  se persistir, rodar `make validar-proxies` para o número calibrado sobre a granularidade
+  medida antes de escalar.
 
 ### 6. PSI por feature — diagnóstico: se o alarme tocou, de onde veio?
 
@@ -169,34 +194,40 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   porque não desloca `P(X)` — responde por **48,0%**, e a interação entre os canais por
   **42,1%**. **Um PSI de feature alto não diz que aquela feature é a causa mais provável
   da degradação — diz só que a distribuição de entrada dela se moveu.**
-- **Quando consultar:** depois que o painel 4 (ou 5) já indicou que algo degradou — nunca
+- **Quando consultar:** depois que o painel 5 (ou 4) já indicou que algo degradou — nunca
   antes. A ordem de leitura é deliberada.
 
 ---
 
 ## Playbook por cenário
 
-### A. Taxa de aprovação caiu de forma sustentada (painel 4)
+### A. Alerta `TaxaDeAprovacaoAbaixoDoLimiarCalibrado` (painel 5)
 
-**Primeira pergunta:** a queda é do tamanho do passo médio mensal medido (0,79 p.p.) ou
-maior? Se sim, é a mesma magnitude que, nos seis lotes simulados, acompanhou queda real de
-AUC-ROC.
+**Primeira pergunta:** a janela está cheia e a queda se sustenta? O alerta só dispara assim —
+e nessa condição, janelas sem drift só cruzam o limiar 1% das vezes; na simulação, a
+travessia acompanhou a queda real de AUC-ROC.
 
 1. Confirmar que não é uma mudança de configuração (limiar de decisão, versão do modelo
    servido — `credito_model_info`).
-2. Olhar a distribuição do score (painel 5): o formato mudou de verdade, ou é ruído de
-   amostra pequena na janela de 500?
-3. Se persistir, rodar `make validar-proxies` para obter o número na granularidade
-   calibrada (lotes de 23.584) antes de escalar — a janela de 500 da API é mais ruidosa
-   que a validação.
+2. Olhar a distribuição do score (painel 4): o formato inteiro se deslocou, ou só a cauda
+   perto do limiar de decisão?
+3. Separar mudança de mix de degradação: um canal novo de aquisição, uma campanha para um
+   público diferente, derrubam a aprovação sem que o modelo tenha piorado. A taxa de
+   aprovação não distingue os dois — essa é a limitação dela como alarme sem rótulo.
+4. Se não houver explicação de mix, escalar: avaliar retreino com o gate de promoção e
+   acompanhar a degradação real quando o rótulo chegar.
 
-### B. Taxa de erro `5xx` maior que zero de forma sustentada (painel 1)
+### B. Alerta `ErrosDoServidorNaApiDeScoring` (painel 1)
 
-**Primeira pergunta:** é erro de entrada do cliente (já seria `422`, nunca `5xx`) ou uma
-exceção dentro do servidor?
+**Primeira pergunta:** é `503` ou outro `5xx`? Erro de entrada do cliente já seria `422`,
+nunca `5xx`.
 
-1. `docker compose logs api` — a exceção real está no traceback.
-2. Confirmar que o modelo carregou no lifespan (`/health` responde `200`?).
+1. **`503`: o registro de decisão não gravou, e nenhuma decisão está sendo emitida** — por
+   desenho: uma decisão sem registro não poderia ser revista (LGPD, art. 20). Verificar o
+   volume `decisoes` (disco cheio, permissão) — `docker compose logs api` mostra
+   "decisão não registrada".
+2. Outro `5xx`: `docker compose logs api` — a exceção real está no traceback.
+3. Confirmar que o modelo carregou no lifespan (`/health` responde `200`?).
 
 ### C. Latência subiu (painéis 2 e 3)
 
@@ -233,9 +264,10 @@ degradação (0,8% / 2,3% / 6,8%, respectivamente)?
   concept drift específico) — não garante que os mesmos proxies antecipem qualquer outro
   padrão de degradação real. Um tipo de drift diferente do simulado poderia mover a taxa
   de aprovação de outra forma, ou não movê-la.
-- **A variância da janela de 500 requisições nunca foi calibrada contra tráfego estável**
-  — ver a dívida declarada no painel 4. O limiar operacional hoje é extrapolado da
-  validação mensal, não medido na granularidade em que a API de fato opera.
+- **O poder do alarme foi medido sobre a mudança que este projeto simula.** Com a janela de
+  2.000, ele pega 14,9% das janelas no primeiro mês e 79,5% no terceiro: a degradação
+  precoce passa, na maior parte das janelas, despercebida. E uma mudança de mix de clientes
+  move a taxa de aprovação sem degradação nenhuma — ver o playbook, cenário A.
 - **Disparidade por faixa etária** (medida no model card: recusa varia 4,7x entre faixas
   contra 2,7x de variação no risco real) **não tem métrica de produção dedicada** —
   nenhum painel desta pilha monitora disparidade em tempo real.
@@ -253,5 +285,6 @@ degradação (0,8% / 2,3% / 6,8%, respectivamente)?
 | Taxa de aprovação e `psi_do_score` por lote | `reports/validacao_de_proxy.json` | `make validar-proxies` |
 | Degradação real (AUC-ROC) por lote | `reports/monitoramento.json` | `make monitor` |
 | Nula empírica do PSI de feature | `README.md`, `src/credito/config.py:61-83` | calibração publicada na Etapa 2 |
-| Nula empírica do PSI do score | Medida na Etapa 3 com `credito.drift.calibration.distribuicao_nula_psi` sobre os escores do campeão na Referência completa (117.917 linhas), 5.000 reamostras, 10 bins, semente 42, lotes de 23.584 | script de medição descartado após o uso, mesmo padrão já usado para os buckets de latência |
+| Nula empírica do PSI do score | `credito.drift.calibration.distribuicao_nula_psi` sobre os escores do campeão na Referência completa (117.917 linhas), 5.000 reamostras, 10 bins, semente 42, lotes de 23.584 | `make calibrar-alarme` → `reports/calibracao_do_alarme.json` |
+| Limiar e poder do alarme por janela | nula da taxa de aprovação em janelas do mês 0 e poder por mês de drift, 5.000 janelas, semente 42 | `make calibrar-alarme` → `reports/calibracao_do_alarme.json` |
 | Latência HTTP e de inferência | Medida subindo `docker-compose.yml` de verdade e gerando 540 requisições reais contra o campeão publicado | ver commit `473ef3c`; reproduzir com `docker compose up -d` e tráfego real contra `/score` |
