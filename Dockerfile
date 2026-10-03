@@ -21,7 +21,8 @@ COPY src ./src
 # --only main: a imagem não carrega pytest nem ruff (grupo `dev`), nem MLflow, Evidently e
 # Pandera (grupo `pipeline`) — só o que credito.api precisa para responder requisições.
 # `tests/test_ferramental.py` trava que a API nunca passe a importar algo de fora de `main`.
-RUN poetry install --only main --no-interaction
+RUN poetry install --only main --no-interaction \
+    && /app/.venv/bin/python -m pip uninstall --yes pip
 
 
 FROM python:3.12-slim AS runtime
@@ -34,7 +35,22 @@ WORKDIR /app
 
 # Usuário sem privilégio: um comprometimento do processo de inferência não vira root
 # dentro do container.
-RUN useradd --create-home --uid 1000 appuser
+RUN useradd --create-home --uid 1000 appuser \
+    && python -m pip uninstall --yes pip \
+    && apt-get update \
+    && apt-get upgrade --yes --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Sem pip em lugar nenhum da imagem final — nem no Python da base, nem no virtualenv (tirado
+# no estágio de build, acima). A API nunca instala nada em execução, e o pip carrega cópias
+# próprias de urllib3, msgpack e setuptools: medido com Trivy, eram as quatro vulnerabilidades
+# HIGH de Python da imagem, todas dentro do pip e nenhuma numa dependência da API.
+#
+# `apt-get upgrade`: a imagem oficial do Python demora a ser reconstruída depois que o Debian
+# publica uma correção de segurança — medido: mesmo com a base recém-baixada, `libpcre2`
+# seguia vulnerável com o pacote corrigido já disponível. As dependências Python continuam
+# travadas pelo lock; só a camada de sistema operacional recebe as correções do dia. O scan
+# semanal (`.github/workflows/security.yml`) é o que pega o que aparecer depois.
 
 COPY --from=builder /app/.venv /app/.venv
 COPY src ./src

@@ -166,3 +166,10 @@ filterwarnings = [
     # de calar um aviso.
     "ignore:Using `httpx` with `starlette\\.testclient` is deprecated; install `httpx2` instead\\.:starlette.exceptions.StarletteDeprecationWarning",
 ]
+
+[tool.coverage.report]
+# Piso, não meta: a suíte cobre 98% hoje. 95 deixa espaço para o que é genuinamente fora do
+# alcance de um teste que não toca rede nem o dataset real (download, `main()` dos scripts)
+# e falha o job de CI no dia em que código novo entrar sem teste — a erosão que, sem piso,
+# só aparece quando alguém lê o relatório de cobertura, ou seja, nunca.
+fail_under = 95
