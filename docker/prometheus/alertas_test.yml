@@ -1,0 +1,79 @@
+# Teste das regras de alerta: `promtool test rules alertas_test.yml`. Uma regra de alerta
+# que nunca foi vista disparando — nem vista NÃO disparando — é tão decorativa quanto um
+# teste que nunca foi visto falhar.
+rule_files:
+  - alertas.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Janela cheia e taxa abaixo do limiar por mais que o `for`: dispara.
+  - interval: 1m
+    input_series:
+      - series: 'credito_taxa_de_aprovacao{job="credito-api"}'
+        values: "0.79 0.77x10"
+      - series: 'credito_taxa_de_aprovacao_amostras{job="credito-api"}'
+        values: "2000x11"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TaxaDeAprovacaoAbaixoDoLimiarCalibrado
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: TaxaDeAprovacaoAbaixoDoLimiarCalibrado
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: credito-api
+            exp_annotations:
+              summary: "Taxa de aprovação abaixo do limiar calibrado (77%)"
+              description: "A taxa de aprovação das últimas 2.000 decisões caiu abaixo de 77,55%, o ponto que janelas sem drift só cruzam 1% das vezes. Na simulação, isso acompanhou a queda real de AUC-ROC. Playbook: docs/monitoring_plan.md, cenário A."
+
+  # Mesma taxa baixa, mas a janela ainda não encheu: não dispara — é ruído.
+  - interval: 1m
+    input_series:
+      - series: 'credito_taxa_de_aprovacao{job="credito-api"}'
+        values: "0.70x10"
+      - series: 'credito_taxa_de_aprovacao_amostras{job="credito-api"}'
+        values: "300x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaxaDeAprovacaoAbaixoDoLimiarCalibrado
+        exp_alerts: []
+
+  # Exatamente no limiar: não dispara — o alarme é "abaixo de".
+  - interval: 1m
+    input_series:
+      - series: 'credito_taxa_de_aprovacao{job="credito-api"}'
+        values: "0.7755x10"
+      - series: 'credito_taxa_de_aprovacao_amostras{job="credito-api"}'
+        values: "2000x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaxaDeAprovacaoAbaixoDoLimiarCalibrado
+        exp_alerts: []
+
+  # 503 sustentado: dispara o alerta de erro do servidor.
+  - interval: 1m
+    input_series:
+      - series: 'credito_http_requests_total{job="credito-api",method="POST",route="/score",status="503"}'
+        values: "0+5x15"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ErrosDoServidorNaApiDeScoring
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "A API de scoring está respondendo 5xx"
+              description: "Respostas 5xx sustentadas por 5 minutos. Um 503 significa que o registro de decisão falhou e nenhuma decisão está sendo emitida. Playbook: docs/monitoring_plan.md, cenário B."
+
+  # Só 422 sustentado (payload inválido, erro do cliente): não dispara. Num cenário só, para
+  # que contar 4xx como erro do servidor não passe escondido atrás de um 503 simultâneo.
+  - interval: 1m
+    input_series:
+      - series: 'credito_http_requests_total{job="credito-api",method="POST",route="/score",status="422"}'
+        values: "0+5x15"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ErrosDoServidorNaApiDeScoring
+        exp_alerts: []

@@ -1,0 +1,39 @@
+# Regras de alerta da API de scoring, provisionadas por arquivo — nada configurado à mão.
+# Testadas por `docker/prometheus/alertas_test.yml` (`promtool test rules`), no CI.
+groups:
+  - name: credito
+    rules:
+      # O alarme de degradação sem rótulo. Limiar e janela medidos por
+      # `make calibrar-alarme` — ver `credito.api.metrics.LIMIAR_DO_ALARME`, onde está a
+      # tabela de falso alarme e poder por mês, e `tests/test_ferramental.py`, que trava
+      # estes dois números iguais aos do código. Só avalia com a janela cheia: o limiar foi
+      # calibrado para janelas de 2.000 decisões, e uma janela incompleta é ruído.
+      - alert: TaxaDeAprovacaoAbaixoDoLimiarCalibrado
+        expr: credito_taxa_de_aprovacao < 0.7755 and credito_taxa_de_aprovacao_amostras >= 2000
+        # Convenção operacional, não medição: filtra oscilação passageira. As janelas de
+        # scrapes vizinhos se sobrepõem quase inteiras, então isto não multiplica a
+        # independência da detecção — só evita alarme por um pico isolado.
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taxa de aprovação abaixo do limiar calibrado ({{ $value | humanizePercentage }})"
+          description: >-
+            A taxa de aprovação das últimas 2.000 decisões caiu abaixo de 77,55%, o ponto que
+            janelas sem drift só cruzam 1% das vezes. Na simulação, isso acompanhou a queda
+            real de AUC-ROC. Playbook: docs/monitoring_plan.md, cenário A.
+
+      # Erro do servidor, nunca do cliente (payload inválido responde 422). Inclui o 503 de
+      # "sem registro, sem decisão": se o registro de decisão não grava, nenhuma decisão é
+      # emitida — e isso precisa acordar alguém.
+      - alert: ErrosDoServidorNaApiDeScoring
+        expr: sum(rate(credito_http_requests_total{status=~"5.."}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A API de scoring está respondendo 5xx"
+          description: >-
+            Respostas 5xx sustentadas por 5 minutos. Um 503 significa que o registro de decisão
+            falhou e nenhuma decisão está sendo emitida. Playbook: docs/monitoring_plan.md,
+            cenário B.

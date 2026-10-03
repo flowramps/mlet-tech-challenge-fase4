@@ -204,3 +204,19 @@ def test_versao_e_uma_so_no_pacote_na_api_e_no_model_card():
     assert do_card, "linha de versão não encontrada no model card"
     assert create_app(object(), {}).version == do_pacote
     assert do_card.group(1) == do_pacote
+
+
+def test_regra_de_alerta_usa_o_limiar_e_a_janela_medidos_no_codigo():
+    # O limiar e a janela do alarme vivem em dois lugares: no código (onde está a medição
+    # que os justifica) e na regra do Prometheus (onde de fato disparam). Recalibrar um e
+    # esquecer o outro deixaria o alerta disparando num número que ninguém mediu.
+    from credito.api.metrics import JANELA_TAXA_DE_APROVACAO, LIMIAR_DO_ALARME
+
+    regras = (RAIZ / "docker" / "prometheus" / "alertas.yml").read_text(encoding="utf-8")
+    expressao = re.search(r"expr:\s*(credito_taxa_de_aprovacao <.*)", regras)
+
+    assert expressao, "regra da taxa de aprovação não encontrada"
+    limiar = re.search(r"credito_taxa_de_aprovacao < ([\d.]+)", expressao.group(1))
+    janela = re.search(r"credito_taxa_de_aprovacao_amostras >= (\d+)", expressao.group(1))
+    assert limiar and float(limiar.group(1)) == LIMIAR_DO_ALARME
+    assert janela and int(janela.group(1)) == JANELA_TAXA_DE_APROVACAO
