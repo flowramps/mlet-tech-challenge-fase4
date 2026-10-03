@@ -188,3 +188,19 @@ def test_a_api_so_alcanca_dependencias_que_a_imagem_instala():
     # O que um fecho estático não vê: `joblib.load` exige `xgboost` e `sklearn` para
     # desserializar o campeão, sem import nenhum no código. Os dois estão em `main` por
     # isso, e o smoke test de `/health` no job de build da CI é quem cobre esse caminho.
+
+
+def test_versao_e_uma_so_no_pacote_na_api_e_no_model_card():
+    # Três lugares declaravam versão e divergiam: o pacote dizia 0.1.0 e a API anunciava
+    # 1.0.0 no OpenAPI. A API agora lê do metadado do pacote; o model card é texto, então
+    # este teste é o que o mantém alinhado.
+    from credito.api.main import create_app
+
+    pyproject = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
+    do_pacote = pyproject["project"]["version"]
+    card = (RAIZ / "docs" / "model_card.md").read_text(encoding="utf-8")
+    do_card = re.search(r"\|\s*\*\*Versão\*\*\s*\|\s*([\d.]+)\s*\|", card)
+
+    assert do_card, "linha de versão não encontrada no model card"
+    assert create_app(object(), {}).version == do_pacote
+    assert do_card.group(1) == do_pacote
