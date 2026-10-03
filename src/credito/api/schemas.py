@@ -75,6 +75,13 @@ class ScoreResponse(BaseModel):
 
     model_config = ConfigDict(protected_namespaces=())
 
+    id_decisao: str = Field(
+        description=(
+            "Identificador desta decisão no registro de auditoria. O sistema de origem guarda "
+            "o vínculo com o cliente; é por ele que uma revisão (LGPD, art. 20) reconstrói "
+            "a decisão."
+        )
+    )
     probabilidade_inadimplencia: float = Field(
         description="Probabilidade que o modelo atribui ao cliente ser inadimplente."
     )

@@ -1272,7 +1272,7 @@ biblioteca diferentes não foi verificada e não está sendo afirmada aqui.
 
 Toda configuração é resolvida por variável de ambiente com o prefixo `CREDITO_`
 (ver `.env.example` e `src/credito/config.py`); nenhuma é obrigatória — os defaults são os
-valores embutidos em `Settings`. Os quatro diretórios de artefato têm default **absoluto**,
+valores embutidos em `Settings`. Os diretórios de artefato têm default **absoluto**,
 ancorado na raiz do repositório, e por isso ficam comentados no `.env.example`: um valor
 relativo ali reproduziria o default apenas quando o comando rodasse da raiz. Um teste
 (`test_env_example_reproduz_os_defaults_que_declara`) compara cada valor ativo do arquivo
