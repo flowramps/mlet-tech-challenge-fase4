@@ -84,14 +84,21 @@ def test_env_example_reproduz_os_defaults_que_declara():
 
 
 def test_defaults_de_diretorio_sao_absolutos_e_ancorados_no_repositorio():
-    # A razão de os quatro diretórios estarem comentados no .env.example: o default é
+    # A razão de os diretórios estarem comentados no .env.example: o default é
     # absoluto, ancorado no repositório, e nenhum caminho relativo o reproduz a não ser
     # por coincidência de diretório de trabalho. Declará-los como valor relativo era
     # exatamente essa coincidência escrita como se fosse o default.
     padrao = Settings()
     declarados = _entradas_do_env_example()
 
-    for campo in ("data_dir", "models_dir", "metrics_dir", "reports_dir", "mlruns_dir"):
+    for campo in (
+        "data_dir",
+        "models_dir",
+        "metrics_dir",
+        "reports_dir",
+        "mlruns_dir",
+        "decisoes_dir",
+    ):
         valor = getattr(padrao, campo)
         assert valor.is_absolute(), campo
         assert valor.parent == PROJECT_ROOT, campo

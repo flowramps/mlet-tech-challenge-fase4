@@ -13,9 +13,7 @@ data
 metrics
 reports
 mlruns
+decisoes
 docs
 tests
 scripts
-.superpowers
-.claude
-notebooks

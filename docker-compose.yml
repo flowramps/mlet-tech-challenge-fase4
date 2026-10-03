@@ -12,6 +12,11 @@ services:
     image: credito-api:local
     ports:
       - "8000:8000"
+    # O registro de decisão de crédito (dado pessoal, retenção de 5 anos) precisa
+    # sobreviver a um `docker compose down`: volume nomeado, o único caminho gravável do
+    # container. `docker compose down -v` apaga — é a eliminação do art. 16 da LGPD.
+    volumes:
+      - decisoes:/app/decisoes
     networks:
       - observabilidade
 
@@ -21,6 +26,7 @@ services:
     image: prom/prometheus:v3.15.0
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alertas.yml:/etc/prometheus/alertas.yml:ro
     ports:
       - "9090:9090"
     networks:
@@ -51,3 +57,6 @@ services:
 networks:
   observabilidade:
     driver: bridge
+
+volumes:
+  decisoes:

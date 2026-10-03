@@ -1,6 +1,6 @@
 [project]
 name = "credito"
-version = "0.5.0"
+version = "1.0.0"
 description = "Sustentação de um modelo de risco de crédito: contratos de dados, detecção de drift e observabilidade"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
