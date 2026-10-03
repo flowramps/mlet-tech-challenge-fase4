@@ -129,6 +129,63 @@ def avaliar_por_faixa_etaria(
     return resultado
 
 
+# Regra dos quatro quintos (Uniform Guidelines on Employee Selection Procedures, EUA,
+# 1978): a taxa de seleção de um grupo abaixo de 80% da do grupo mais selecionado é
+# tratada como evidência de impacto adverso. É convenção regulatória, não medição deste
+# dado — o mesmo status que `psi_atencao`/`psi_critico` declaram em `config.py`.
+LIMIAR_QUATRO_QUINTOS = 0.8
+
+
+def razao_impacto_adverso(por_faixa: dict[str, dict[str, float]]) -> dict[str, Any]:
+    """Regra dos 4/5 sobre a taxa de aprovação de cada faixa, contra a mais aprovada.
+
+    Recebe o que `avaliar_por_faixa_etaria` devolve. Mede **desigualdade de desfecho**:
+    quanto menos uma faixa é aprovada que a faixa mais aprovada. Não desconta diferença
+    de risco real entre as faixas — e é exatamente por isso que esta métrica sozinha não
+    basta (ver `diferenca_de_oportunidade`).
+    """
+    if not por_faixa:
+        raise ValueError("nenhuma faixa para comparar")
+    referencia = max(por_faixa, key=lambda nome: por_faixa[nome]["taxa_de_aprovacao"])
+    taxa_referencia = por_faixa[referencia]["taxa_de_aprovacao"]
+    if taxa_referencia <= 0:
+        raise ValueError("nenhuma faixa aprova ninguém: a razão é indefinida")
+
+    faixas = {}
+    for nome, faixa in por_faixa.items():
+        razao = faixa["taxa_de_aprovacao"] / taxa_referencia
+        faixas[nome] = {"razao": razao, "impacto_adverso": bool(razao < LIMIAR_QUATRO_QUINTOS)}
+    return {"referencia": referencia, "limiar": LIMIAR_QUATRO_QUINTOS, "faixas": faixas}
+
+
+def diferenca_de_oportunidade(por_faixa: dict[str, dict[str, float]]) -> dict[str, Any]:
+    """Distância entre o recall de cada faixa e o maior recall entre as faixas.
+
+    Mede **desigualdade de erro**: entre os que de fato inadimpliram, quantos o modelo
+    deixa passar em cada grupo. Ao contrário da regra dos 4/5, condiciona no desfecho
+    real — então uma faixa pode ser a mais aprovada e, ao mesmo tempo, aquela em que o
+    modelo menos enxerga o risco.
+
+    Faixa sem `recall_positivo` (nenhum inadimplente real nela) fica fora: a métrica é
+    indefinida ali, e zerá-la faria a faixa parecer a mais prejudicada. Não há corte
+    regulatório consolidado para esta diferença, então nenhum é declarado aqui.
+    """
+    com_recall = {nome: f for nome, f in por_faixa.items() if "recall_positivo" in f}
+    if not com_recall:
+        raise ValueError("nenhuma faixa tem recall definido")
+    referencia = max(com_recall, key=lambda nome: com_recall[nome]["recall_positivo"])
+    recall_referencia = com_recall[referencia]["recall_positivo"]
+
+    faixas = {
+        nome: {
+            "recall_positivo": faixa["recall_positivo"],
+            "diferenca": recall_referencia - faixa["recall_positivo"],
+        }
+        for nome, faixa in com_recall.items()
+    }
+    return {"referencia": referencia, "faixas": faixas}
+
+
 def salvar_metricas(metricas: dict[str, Any], caminho: Path) -> None:
     """Grava as métricas em JSON legível por humano e por máquina."""
     caminho = Path(caminho)

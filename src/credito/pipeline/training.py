@@ -18,7 +18,13 @@ from credito.contracts.pandera_backend import construir_validador
 from credito.data.arff import ler_arff
 from credito.data.download import baixar_dataset
 from credito.data.prepare import limpar, separar
-from credito.model.evaluate import avaliar, avaliar_por_faixa_etaria, salvar_metricas
+from credito.model.evaluate import (
+    avaliar,
+    avaliar_por_faixa_etaria,
+    diferenca_de_oportunidade,
+    razao_impacto_adverso,
+    salvar_metricas,
+)
 from credito.model.train import (
     TIPOS_DE_MODELO,
     carregar_modelo,
@@ -141,6 +147,12 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
             **metricas_teste,
             "validacao": avaliacoes,
             "por_faixa_etaria": por_faixa,
+            # Calculadas sobre o mesmo `por_faixa` publicado logo acima — nunca sobre um
+            # segundo recorte que pudesse discordar da tabela de faixas.
+            "equidade": {
+                "quatro_quintos": razao_impacto_adverso(por_faixa),
+                "oportunidade": diferenca_de_oportunidade(por_faixa),
+            },
             "referencia": {"linhas": len(referencia), "descartes": descartes},
         },
         settings.metrics_dir / "metrics.json",

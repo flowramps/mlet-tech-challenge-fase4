@@ -4,7 +4,9 @@
 > inválido na ingestão, treina um baseline auditável sobre um Dataset de Referência limpo,
 > só publica um modelo novo quando ele passa por um gate de qualidade com pisos medidos e
 > monitora a população que chega depois — medindo não só onde ela se deslocou, mas quanto
-> esse deslocamento custou ao modelo que está servindo.
+> esse deslocamento custou ao modelo que está servindo, com um alarme que funciona sem
+> rótulo e uma governança que mede, em vez de supor, o risco de reidentificação e a
+> equidade da decisão.
 
 ---
 
@@ -277,13 +279,15 @@ afirmação sem evidência. Medido no conjunto de teste:
 | 41-60 | 11.302 | 7,24% | 21,62% | 0,6822 | 0,304 |
 | 61+ | 6.397 | 3,22% | 7,50% | 0,5000 | 0,166 |
 
-A taxa de recusa cai monotonicamente com a idade (34,98% → 7,50%), e a taxa de
-inadimplência real também (8,64% → 3,22%). Ou seja: a diferença de tratamento acompanha uma
-diferença de risco observada, não é um viés puro. Mas a razão entre os extremos é de **4,7×**
+A taxa de recusa cai monotonicamente com a idade (34,98% → 7,50%). A inadimplência real cai
+entre os extremos (8,64% → 3,22%), mas não monotonicamente: a faixa 26-40 tem o maior risco
+da tabela, 10,58%. Ou seja: parte da diferença de tratamento acompanha uma diferença de risco
+observada, não é um viés puro. Mas a razão entre os extremos é de **4,7×**
 na recusa contra **2,7×** no risco real — o modelo é mais severo com os jovens do que o
 risco medido justifica. O recall de 0,5000 na faixa 61+ também é o mais baixo da tabela: o
 modelo enxerga pior o inadimplente idoso. São números para discutir viés com dado em vez de
-adjetivo; a análise formal de *disparate impact* é trabalho da etapa de governança.
+adjetivo — e a análise formal, com duas métricas que discordam entre si, está na seção de
+governança.
 
 ---
 
@@ -1021,6 +1025,75 @@ o porquê de cada item, está em [`docs/monitoring_plan.md`](docs/monitoring_pla
 
 ---
 
+## Governança e proteção de dados
+
+O documento completo — base legal, dado tratado, retenção, equidade, causalidade e direitos
+do titular — está em [`docs/governanca.md`](docs/governanca.md). Toda citação de lei ali foi
+conferida contra o texto oficial na redação vigente, e todo número sai de `make train` ou
+`make auditar-privacidade`. O essencial:
+
+**Base legal: proteção do crédito, não consentimento.** A LGPD autoriza o tratamento *"para
+a proteção do crédito"* (art. 7º, X) e para os procedimentos preliminares de um contrato
+pedido pelo titular (art. 7º, V). Consentimento seria a escolha errada: é revogável a
+qualquer momento (art. 8º, §5º) e precisa ser livre (art. 5º, XII) — condicionar o crédito
+ao aceite não é manifestação livre.
+
+**Sem CPF não é o mesmo que anônimo.** A Referência não tem identificador direto, mas,
+medido com k-anonimato, **53,30% das 117.917 pessoas são as únicas com aquela idade, aquela
+renda e aquele número de dependentes**. Quem conhece esses três fatos sobre alguém encontra
+a linha e o rótulo de inadimplência. Pelo art. 12 da LGPD, isso é dado pessoal
+pseudonimizado, e é tratado como tal. Generalizar em faixa etária, quintil de renda e
+dependentes até 3 reduz as linhas em grupo menor que 5 de **75,62% para 0,01%**:
+
+| Quase-identificadores | Em grupo com menos de 5 — valor exato | — generalizado |
+|---|---:|---:|
+| idade + renda | 59,08% | 0,00% |
+| idade + renda + dependentes | **75,62%** | **0,01%** (12 linhas) |
+
+**Minimização na fronteira do serviço.** A API de scoring recebe só as dez variáveis do
+modelo; um CPF ou um nome enviados por engano são descartados na validação — declarado no
+`model_config` e travado por teste, não deixado ao default da biblioteca —, e verificado
+rodando a API: zero ocorrências do CPF no log. Os relatórios do Evidently, que pesam 4,72 MB
+cada, também foram auditados: guardam estatística agregada, não linhas individuais.
+
+**Equidade: duas métricas formais, e elas discordam.**
+
+| Faixa | Aprovação | Razão 4/5 | Impacto adverso | Recall + |
+|---|---:|---:|:---:|---:|
+| 18-25 | 65,02% | **0,7030** | **sim** | 0,7857 |
+| 26-40 | 68,09% | **0,7361** | **sim** | 0,7671 |
+| 41-60 | 78,38% | 0,8473 | não | 0,6822 |
+| 61+ | 92,50% | 1,0000 | não | **0,5000** |
+
+Pela regra dos 4/5 sobre a aprovação, **os jovens** sofrem impacto adverso. Pela igualdade
+de oportunidade, quem sai pior são **os idosos**: o modelo deixa passar metade dos
+inadimplentes 61+. Uma única métrica de equidade daria o veredito de uma direção e
+esconderia a outra — por isso as duas são publicadas em `metrics.json` a cada treino. O
+modelo não foi alterado; as opções de mitigação, com o custo de cada uma, estão no
+documento, sob uma regra: medir as duas métricas antes e depois, porque fechar uma
+distância abrindo a outra é trocar de grupo prejudicado.
+
+**Revisão de decisão automatizada: o que a lei exige, e o que o projeto decide.** O art. 20
+garante revisão de decisão automatizada de crédito — mas a redação vigente **não exige que
+ela seja humana**: a expressão *"por pessoa natural"* do texto original foi retirada em 2018
+e o parágrafo que a reintroduziria foi vetado em 2019. Este projeto adota revisão humana
+mesmo assim, como decisão declarada e mais rigorosa que a lei.
+
+**Causalidade.** A decomposição por intervenção da seção de monitoramento vira critério de
+governança: explicar uma decisão pela variável que mais se deslocou é explicar errado (as
+duas de maior PSI respondem por 3,1% da degradação), e os critérios podem deixar de valer
+sem que nenhuma entrada mude (concept drift, 48,0%) — por isso a informação sobre critérios
+que o art. 20, §1º exige precisa ser versionada junto com o modelo e o monitoramento.
+
+**Retenção.** O vetor de features não é gravado; a Referência fica enquanto o modelo
+treinado nela estiver em produção, mais um ciclo de retreino, e depois é generalizada ou
+eliminada; o registro de decisão, quando existir, fica 5 anos — prazo alinhado ao teto do
+CDC para informação negativa (art. 43, §1º). **Esse registro ainda não existe:** a API
+responde sem gravar, o que é bom para a minimização e deixa o direito de revisão sem objeto.
+É o próximo componente, já especificado no documento.
+
+---
+
 ## Como executar
 
 Pré-requisitos: **Python 3.12** e **Poetry 2.x** (validado com Python 3.12.13 e Poetry
@@ -1068,6 +1141,7 @@ make test                 # suíte com relatório de cobertura
 make demo-contrato        # mostra o contrato bloqueando um lote adulterado
 make verificar-degradacao # degradação monotônica + o contraexperimento que a calibra
 make validar-proxies      # quanto cada proxy sem rótulo antecipa a degradação real
+make auditar-privacidade  # risco de reidentificação da Referência e efeito da generalização
 ```
 
 E a pilha de observabilidade (requer `make train` antes, para ter um campeão para servir):
@@ -1122,7 +1196,7 @@ src/credito/
 │   └── pandera_backend.py  Execução das regras com Pandera, atrás do Protocol
 ├── model/
 │   ├── train.py            Os dois candidatos, com tratamento de desbalanceamento
-│   └── evaluate.py         AUC-PR, recall positivo e o recorte por faixa etária
+│   └── evaluate.py         AUC-PR, recall positivo, recorte etário e as duas métricas de equidade
 ├── drift/
 │   ├── base.py             Protocol DriftDetector, Severidade, DriftDeFeature autovalidante
 │   ├── statistics.py       PSI e KS próprios, com binning roteado por colapso medido
@@ -1139,20 +1213,24 @@ src/credito/
 │   └── validacao_de_proxy.py  Correlação de cada proxy contra a degradação real medida
 ├── tracking/
 │   └── mlflow_client.py    Registra cada execução do monitoramento como um run do MLflow
-└── api/
-    ├── main.py             /health, /score, /metrics
-    ├── schemas.py          Contrato Pydantic de entrada e saída, espelhando FEATURES
-    └── metrics.py          Instrumentação Prometheus, cardinalidade controlada por rota
+├── api/
+│   ├── main.py             /health, /score, /metrics
+│   ├── schemas.py          Contrato Pydantic de entrada e saída; descarta campo fora de FEATURES
+│   └── metrics.py          Instrumentação Prometheus, cardinalidade controlada por rota
+└── governanca/
+    └── privacidade.py      k-anonimato da Referência e a generalização que o reduz
 
 src/credito/data/simulate.py   Os 6 lotes: 3 variáveis de data drift + 1 concept drift
 scripts/demo_contrato.py       Demonstração do bloqueio de ingestão
 scripts/verificar_degradacao.py  Guarda da monotonicidade e do contraexperimento que a calibra
 scripts/validar_proxies.py     Mede quanto cada proxy sem rótulo antecipa a degradação real
 scripts/gerar_trafego.py       Tráfego real contra a API, para os painéis terem o que mostrar
+scripts/auditar_privacidade.py Risco de reidentificação, valor exato contra generalizado
 docker/prometheus/             Config de scrape do Prometheus
 docker/grafana/                Datasource e dashboard provisionados por arquivo
 docs/model_card.md             Uso pretendido, métricas, limitações e riscos
 docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar e o playbook
+docs/governanca.md             Base legal, dado tratado, retenção, equidade, causalidade, direitos
 docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
 tests/                         Suíte espelhando a estrutura de src/
 ```
@@ -1240,9 +1318,23 @@ E as que a camada de observabilidade acrescenta — detalhe completo em
   alta disponibilidade do Prometheus/Grafana — adequado para demonstrar a camada, não
   para operar em produção.
 
-### Próximas etapas
+E as que a camada de governança acrescenta — detalhe em
+[`docs/governanca.md`](docs/governanca.md):
 
-- **Etapa 4 — Governança.** Análise formal de viés a partir do recorte já medido,
-  documentação de conformidade e o direito de revisão humana sobre decisão automatizada. A
-  decomposição causal desta etapa alimenta a documentação de causalidade que essa fase
-  exige.
+- **Não há registro de decisão de crédito.** A API responde e não grava, então uma recusa
+  passada não pode ser reconstruída para a revisão que o art. 20 garante. O esquema e o
+  prazo de retenção estão especificados; o componente não está construído.
+- **O viés etário está medido, não mitigado.** As duas métricas formais estão publicadas e
+  as opções de mitigação, avaliadas; nenhuma foi aplicada ao campeão.
+- **Viés por atributo ausente não é mensurável.** Renda e dependentes podem carregar sinal de
+  gênero ou região, que a Referência não tem.
+- **A explicação é global, não por decisão.** Os critérios do modelo e o que os invalida
+  estão documentados; por que *um* pedido específico foi recusado, não.
+
+### Continuidade
+
+Sobre esta base, na ordem em que um depende do outro: o **registro de decisão** com
+identificador pseudônimo; a **explicação individual** sobre esse registro; a **mitigação de
+viés** escolhida entre as opções medidas, passando pelo mesmo gate de promoção de qualquer
+candidato; e o **relatório de impacto à proteção de dados** (LGPD, art. 38), que
+`docs/governanca.md` já estrutura.

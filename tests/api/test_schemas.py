@@ -60,3 +60,18 @@ def test_score_request_aceita_construcao_por_alias_hifenizado():
 
     assert requisicao.number_of_time_30_59_days_past_due_not_worse == 0
     assert requisicao.debt_ratio == 0.2
+
+
+def test_identificador_enviado_a_mais_e_descartado_antes_de_chegar_ao_modelo():
+    # Minimização de dado (LGPD, art. 6º, III) como propriedade do código, não como
+    # promessa sobre o cliente: o sistema de origem pode, por engano, mandar CPF e nome
+    # junto com as features. Eles têm que morrer na validação — não chegar ao modelo, ao
+    # log nem à métrica. Mutação que este teste pega: `extra="allow"` no `model_config`
+    # faria o CPF sobreviver no objeto validado.
+    com_identificacao = {**_PAYLOAD, "cpf": "123.456.789-00", "nome": "Fulana de Tal"}
+
+    requisicao = ScoreRequest.model_validate(com_identificacao)
+
+    sobreviventes = set(requisicao.model_dump(by_alias=True))
+    assert sobreviventes == set(FEATURES)
+    assert set(requisicao.para_registro()) == set(FEATURES)

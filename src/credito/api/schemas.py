@@ -19,7 +19,11 @@ from credito.schema import FEATURES
 class ScoreRequest(BaseModel):
     """Um registro de crédito a pontuar."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    # `extra="ignore"` é o default do Pydantic, declarado aqui porque é decisão de
+    # privacidade, não acidente de biblioteca: um identificador enviado a mais (CPF, nome)
+    # é descartado na validação e nunca chega ao modelo, ao log nem à métrica — a
+    # minimização de dado como propriedade do código (ver `docs/governanca.md`).
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     revolving_utilization_of_unsecured_lines: float = Field(
         alias="RevolvingUtilizationOfUnsecuredLines",
