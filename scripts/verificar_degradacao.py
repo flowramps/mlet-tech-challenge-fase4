@@ -24,8 +24,8 @@ silêncio, sem que nenhum teste unitário perceba. Este script é o que as torna
 sob demanda, e o que uma futura esteira de CI chamaria antes de publicar o README com a
 progressão como resultado.
 
-A saída impressa é a mesma tabela que o relatório desta correção reproduz — rodar este
-script é também como regenerar os números do README e do comentário de
+A saída impressa é a mesma tabela que a seção de monitoramento do README publica — rodar
+este script é também como regenerar os números do README e do comentário de
 `_TAXA_MAXIMA_DE_INVERSAO`, não só validar a monotonicidade.
 """
 

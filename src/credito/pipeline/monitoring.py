@@ -317,9 +317,9 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
         relatorio_proprio = _relatorio_proprio(nome, amostra, lote)
         relatorios_proprios.append(relatorio_proprio)
         relatorio_evidently = detector.detectar(amostra, lote, lote=nome)
-        # `referencia=amostra`: os sinais sem rótulo (Task 1/2) usam a mesma partição de
-        # teste que o resto desta orquestração já usa como linha de base — nunca uma
-        # segunda Referência calculada à parte.
+        # `referencia=amostra`: os sinais sem rótulo (`credito.monitoring.proxies`) usam a
+        # mesma partição de teste que o resto desta orquestração já usa como linha de base —
+        # nunca uma segunda Referência calculada à parte.
         proxies_por_lote[nome] = sinais_do_lote(modelo, lote, referencia=amostra)
 
         relatorio_por_lote[nome] = {

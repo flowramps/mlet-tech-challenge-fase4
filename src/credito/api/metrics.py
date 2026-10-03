@@ -43,21 +43,19 @@ from prometheus_client import (
 
 from credito.monitoring.proxies import LIMIAR_PADRAO, taxa_de_aprovacao
 
-# Medido localmente: TestClient contra esta mesma app, modelo-dublê (sem custo real de
-# árvore/regressão), 200 requisições a /score e 50 a /health, cada uma cronometrada com
-# `time.perf_counter` ao redor da chamada do cliente de teste (script de medição
-# descartado após o uso, resultado registrado no relatório da tarefa). /score: p50 1,45
-# ms, p90 1,96 ms, p99 2,39 ms, máximo 2,54 ms. /health (sem inferência nem validação de
-# payload): p50 0,80 ms, p99 1,05 ms, máximo 1,10 ms. Os buckets abaixo vão de 0,5 ms
-# (abaixo do p50 mais rápido medido, /health) a 250 ms (duas ordens de grandeza acima do
-# p99 mais lento medido, /score), para que tanto uma resposta local quanto uma
-# degradação real de rede/CPU ainda caiam num bucket intermediário em vez de estourar a
-# régua.
+# Medido em duas rodadas. `/health` não toca o modelo, então a primeira medição — TestClient
+# contra esta app, 50 requisições cronometradas com `time.perf_counter` — continua valendo:
+# p50 0,80 ms, p99 1,05 ms. `/score` foi remedido contra o campeão real, com a pilha de pé
+# (540 requisições, cliente sequencial, lidas do próprio histograma no Prometheus — ver
+# `docs/monitoring_plan.md`): p50 6,46 ms, p95 10,7 ms, p99 22,2 ms. Os buckets vão de
+# 0,5 ms (abaixo do p50 de `/health`) a 250 ms (cerca de 11x o p99 de `/score`), para que
+# tanto uma resposta local quanto uma degradação real de rede/CPU caiam num bucket
+# intermediário em vez de estourar a régua.
 HTTP_BUCKETS = (0.0005, 0.00075, 0.001, 0.0015, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25)
 
 # A primeira medição desta constante usou um dublê de modelo (sem custo real de
 # árvore/regressão) e calibrou buckets até 1 ms — valor que o campeão real (XGBoost, 300
-# árvores) estourava em toda requisição assim que a stack subiu de verdade (Task 5): as
+# árvores) estourava em toda requisição assim que a stack subiu de verdade (docker compose): as
 # 540 chamadas reais caíam inteiras no bucket +Inf, tornando o Histogram inútil. Remedido
 # com `Modelo.predict_proba` real, 540 chamadas, payload variado: p50 3,515 ms, p90
 # 7,696 ms, p95 9,665 ms, p99 13,442 ms, máximo 17,367 ms (medição registrada em

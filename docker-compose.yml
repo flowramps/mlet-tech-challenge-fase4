@@ -1,4 +1,4 @@
-# Pilha de observabilidade local: a API de scoring instrumentada (Task 4), o Prometheus que
+# Pilha de observabilidade local: a API de scoring instrumentada (`credito.api`), o Prometheus que
 # a raspa e o Grafana que visualiza o que ele guarda. Rede própria (`observabilidade`) para
 # que `prometheus` alcance `api` e `grafana` alcance `prometheus` pelo nome do serviço —
 # nenhum IP fixo, nenhuma porta de host exposta é necessária entre os três containers, só

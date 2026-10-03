@@ -153,7 +153,7 @@ def test_ponta_a_ponta_grava_o_resumo_consolidado_em_json(ambiente):
 
 
 def test_ponta_a_ponta_registra_run_no_mlflow_com_parametros_metricas_e_artefatos(ambiente):
-    """`executar_monitoramento` liga ao MLflow de verdade (Task 7) — não só constrói o
+    """`executar_monitoramento` liga ao MLflow de verdade — não só constrói o
     JSON consolidado. Sem este teste, remover a chamada a `registrar_execucao` deixaria a
     suíte inteira verde: nenhum outro teste desta classe consulta o backend MLflow."""
     from credito.config import get_settings
@@ -181,8 +181,8 @@ def test_ponta_a_ponta_registra_run_no_mlflow_com_parametros_metricas_e_artefato
     algum_historico = next(iter(historico_psi.values()))
     assert len(algum_historico) == 6, "psi por feature deveria ter um ponto por mês"
 
-    # As três famílias de proxy sem rótulo (Task 1/2) também precisam estar no run —
-    # é o que conecta o alarme desta etapa ao rastreamento.
+    # As três famílias de proxy sem rótulo (`credito.monitoring.proxies`) também precisam
+    # estar no run — é o que conecta o alarme desta etapa ao rastreamento.
     nomes_de_metrica = set(run.data.metrics)
     assert any(nome.startswith("proxy.taxa_de_aprovacao") for nome in nomes_de_metrica)
     assert any(nome.startswith("proxy.psi_do_score") for nome in nomes_de_metrica)

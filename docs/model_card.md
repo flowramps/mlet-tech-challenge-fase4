@@ -92,8 +92,9 @@ contrário. **Desbalanceado: 6,94% de positivos.**
 
 ## Métricas
 
-Todas medidas no **conjunto de teste** (23.584 linhas, nunca usado para escolher o
-candidato), limiar de decisão 0,5.
+Medidas no **conjunto de teste** (23.584 linhas, nunca usado para escolher o candidato),
+limiar de decisão 0,5 — exceto a tabela de seleção do candidato, que é de **validação**, de
+propósito, pela razão explicada nela.
 
 ### Seleção do candidato
 

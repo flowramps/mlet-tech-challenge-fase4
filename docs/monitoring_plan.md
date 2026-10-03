@@ -20,7 +20,7 @@ Duas medições das etapas anteriores decidem o que este documento pode e não p
    quem inadimpliu até meses depois da decisão.
 
 Logo, todo limiar abaixo vem de uma pergunta só: **qual sinal, calculável sem rótulo,
-mais se pareceu com a degradação real quando a única temos rótulo para conferir?** —
+mais se pareceu com a degradação real, na única situação em que há rótulo para conferir?** —
 e não de convenção de mercado, exceto onde isso é dito explicitamente.
 
 ---
@@ -51,7 +51,7 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   imediato é diagnóstico: comparar esta série com a latência de inferência (painel 3) para
   saber se uma lentidão vem do modelo ou do que envolve a chamada (validação do payload,
   serialização, rede). Um patamar prático para observar — não um SLA medido — é qualquer
-  p99 sustentado **acima de 100 ms**, quase 5x o pior valor já observado.
+  p99 sustentado **acima de 100 ms**, cerca de 4,5x o pior valor já observado.
 - **Quando disparar:** olhar a latência de inferência (painel 3) na mesma janela. Se ela
   não subiu na mesma proporção, o gargalo está fora do modelo.
 
@@ -59,7 +59,7 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
 
 - **Métrica:** `credito_inference_duration_seconds_bucket` — só a chamada a
   `predict_proba`, sem HTTP em volta.
-- **Achado desta validação:** a calibração original dos buckets (Task 4) usou um dublê de
+- **Achado desta validação:** a calibração original dos buckets, feita junto com a API, usou um dublê de
   modelo e foi só até 1 ms. Subindo a pilha de verdade e medindo o campeão real (XGBoost,
   300 árvores) sob as mesmas 540 requisições, **toda chamada caía no bucket `+Inf`** — o
   histograma era inútil para o modelo que de fato está publicado. Corrigido no commit
@@ -67,7 +67,7 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
 - **Medição real do campeão** (540 chamadas a `predict_proba`, payload variado): p50
   3,515 ms · p90 7,696 ms · p95 9,665 ms · p99 13,442 ms · máximo 17,367 ms.
 - **Alerta:** mesmo raciocínio do painel 2 — patamar prático de observação, não SLA
-  medido sob carga real: p99 sustentado **acima de 50 ms** (quase 4x o máximo observado).
+  medido sob carga real: p99 sustentado **acima de 50 ms** (cerca de 2,9x o máximo observado e 3,7x o p99).
 - **Quando disparar:** confirma que o gargalo é o modelo (troca de hardware, contenção de
   CPU do container, ou um candidato promovido com custo de inferência maior) — nunca rede
   ou serialização, que este número exclui por construção.
@@ -78,7 +78,7 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   uma janela deslizante das últimas `JANELA_TAXA_DE_APROVACAO = 500` respostas, via
   `credito.monitoring.proxies.taxa_de_aprovacao` — nunca uma segunda implementação do
   corte de limiar.
-- **Por que este é o alarme, e não outro:** a Task 2 mediu os três proxies sem rótulo
+- **Por que este é o alarme, e não outro:** a validação de proxies (`make validar-proxies`) mediu os três sinais sem rótulo
   contra a degradação real dos seis lotes simulados. Os três empatam em concordância de
   ordem (Spearman rho = ±1,0000 contra AUC-ROC e contra lift acima do piso, **p exato de
   permutação 0,002778**, n=6 — o intervalo de confiança fechado satura perto de `|rho|=1`
@@ -105,8 +105,8 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   sob tráfego estável (sem drift nenhum) **não foi calibrada** — travar os 0,79 p.p./mês
   medidos como limiar de alerta na janela de 500 é extrapolação, não medição. Mesma
   categoria de dívida que `psi_atencao`/`psi_critico` já assumem no gate de features:
-  declarada aqui, não escondida. Fica para quem operar esta pilha (ou a Task 7) calibrar
-  a nula da janela de 500 antes de travar um número de produção.
+  declarada aqui, não escondida. A nula da janela de 500 precisa ser calibrada antes de travar um número de
+  produção.
 - **Quando disparar:** confirmar que não é mudança de configuração (o `limiar` de decisão
   mudou?) nem uma fatia de tráfego atipicamente diferente (ex.: um único cliente
   disparando um volume fora do padrão); comparar com a distribuição do score (painel 5);
@@ -122,10 +122,10 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   mas **não há hoje um número de PSI calculado ao vivo a partir dele** — a API não mantém
   uma janela de referência separada da janela atual para comparar. O cálculo numérico de
   `psi_do_score` existe (`credito.monitoring.proxies.psi_do_score`) e roda hoje só em
-  lote, via `make monitor` / `scripts/validar_proxies.py`, registrado no MLflow (Task 3).
-  Ligar isso a uma métrica Prometheus ao vivo é decisão que fica para a Task 7, pela mesma
-  razão declarada no painel de PSI por feature abaixo.
-- **Calibração da nula, medida nesta task:** os 10 bins de `psi_do_score` foram
+  lote, via `make monitor` / `scripts/validar_proxies.py`, registrado no MLflow.
+  Ligar isso a uma métrica Prometheus ao vivo é decisão ainda não tomada, pela mesma razão
+  declarada no painel de PSI por feature abaixo.
+- **Calibração da nula, medida na Etapa 3:** os 10 bins de `psi_do_score` foram
   calibrados na Etapa 2 só para as dez features de entrada — nunca para a distribuição de
   saída do modelo, que tem forma diferente. Recalibrado agora com o mesmo método
   (`credito.drift.calibration.distribuicao_nula_psi`, 5.000 reamostras, 10 bins, semente
@@ -154,11 +154,10 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
 
 - **Painel deliberadamente textual no dashboard**, sem métrica Prometheus ao vivo: o PSI
   por feature é calculado em lote (`credito.drift.statistics.psi`, dentro de
-  `credito.pipeline.monitoring`) e registrado no MLflow a cada execução (Task 3) — a API
-  de scoring (Task 4) responde requisição a requisição e não recalcula PSI contra a
-  Referência completa a cada chamada. Ligar isso a um `Gauge`/pushgateway é decisão da
-  Task 7.
-- **Nula empírica publicada na Etapa 2** (README, `config.py:55-77`): pior p95 entre as
+  `credito.pipeline.monitoring`) e registrado no MLflow a cada execução — a API de
+  scoring responde requisição a requisição e não recalcula PSI contra a Referência
+  completa a cada chamada. Ligar isso a um `Gauge`/pushgateway é decisão ainda não tomada.
+- **Nula empírica publicada na Etapa 2** (README, `config.py:61-83`): pior p95 entre as
   dez features 0,001610 (`NumberRealEstateLoansOrLines`), pior p99 0,001978 — a convenção
   `psi_atencao=0,10` está **62x** acima do p95 medido e `psi_critico=0,25` está **126x**
   acima do p99. **Esta nula não alimenta nenhum limiar no gate de features hoje** — é
@@ -243,7 +242,7 @@ degradação (0,8% / 2,3% / 6,8%, respectivamente)?
 - **PSI por feature e PSI do score ao vivo, como métrica Prometheus numérica**, não estão
   implementados — ambos rodam hoje em lote (MLflow). Decidir a via concreta (job em lote
   escrevendo um `Gauge`/pushgateway, ou um exportador lendo o último cálculo do MLflow)
-  fica para a Task 7.
+  é decisão ainda não tomada.
 
 ---
 
@@ -253,6 +252,6 @@ degradação (0,8% / 2,3% / 6,8%, respectivamente)?
 |---|---|---|
 | Taxa de aprovação e `psi_do_score` por lote | `reports/validacao_de_proxy.json` | `make validar-proxies` |
 | Degradação real (AUC-ROC) por lote | `reports/monitoramento.json` | `make monitor` |
-| Nula empírica do PSI de feature | `README.md`, `src/credito/config.py:55-77` | calibração publicada na Etapa 2 |
-| Nula empírica do PSI do score | Medida nesta task com `credito.drift.calibration.distribuicao_nula_psi` sobre os escores do campeão na Referência completa (117.917 linhas), 5.000 reamostras, 10 bins, semente 42, lotes de 23.584 | script de medição descartado após o uso, mesmo padrão já usado para os buckets de latência (Task 4) |
+| Nula empírica do PSI de feature | `README.md`, `src/credito/config.py:61-83` | calibração publicada na Etapa 2 |
+| Nula empírica do PSI do score | Medida na Etapa 3 com `credito.drift.calibration.distribuicao_nula_psi` sobre os escores do campeão na Referência completa (117.917 linhas), 5.000 reamostras, 10 bins, semente 42, lotes de 23.584 | script de medição descartado após o uso, mesmo padrão já usado para os buckets de latência |
 | Latência HTTP e de inferência | Medida subindo `docker-compose.yml` de verdade e gerando 540 requisições reais contra o campeão publicado | ver commit `473ef3c`; reproduzir com `docker compose up -d` e tráfego real contra `/score` |

@@ -24,23 +24,30 @@ Duas causas se confundem quando não há instrumentação:
 - **A população mudou.** O dado continua válido, mas não é mais o dado sobre o qual o
   modelo aprendeu.
 
-São problemas diferentes e exigem respostas diferentes, e o repositório os separa em duas
-camadas. A primeira estabelece o Dataset de Referência, o contrato que barra dado inválido
-antes de qualquer coisa acontecer, o baseline e o gate de promoção. A segunda simula a
-passagem do tempo sobre a população, mede o deslocamento com PSI e KS, gera o relatório do
-Evidently e — a parte que muda a conclusão — mede o que o deslocamento custou ao modelo
-publicado.
+São problemas diferentes e exigem respostas diferentes, e o repositório os separa em
+camadas, cada uma respondendo uma pergunta. A primeira estabelece o Dataset de Referência,
+o contrato que barra dado inválido antes de qualquer coisa acontecer, o baseline e o gate
+de promoção. A segunda simula a passagem do tempo sobre a população, mede o deslocamento
+com PSI e KS, gera o relatório do Evidently e — a parte que muda a conclusão — mede o que o
+deslocamento custou ao modelo publicado. A terceira torna isso operável em produção, onde
+não há rótulo. A quarta pergunta se a decisão é lícita e justa.
 
 A distinção que o código sustenta: **contrato responde "este dado é válido?"** e é falha
 dura quando a resposta é não. **Drift responde "este dado é o mesmo de antes?"** — e um
 lote com drift passa no contrato, porque dado deslocado continua sendo dado válido. Os seis
-lotes simulados desta etapa passam no contrato, todos, com zero violações: é a demonstração
+lotes simulados passam no contrato, todos, com zero violações: é a demonstração
 da distinção, não uma coincidência de calibração.
 
 E há uma terceira pergunta, que nenhuma das duas responde: **"e daí?"** — quanto o
 deslocamento custa ao modelo que está servindo. PSI e KS são diagnóstico; a degradação
 medida é o alarme. A seção de monitoramento mostra, com a decomposição causal desta
 execução, que as duas respostas apontam para variáveis diferentes.
+
+Mais duas perguntas fecham o problema. **"E sem rótulo?"** — em produção ninguém sabe quem
+inadimpliu até meses depois da decisão, então a degradação medida não serve de alarme ao
+vivo; a seção de observabilidade mede qual sinal sem rótulo a antecipa. **"É lícito e
+justo?"** — a seção de governança fixa a base legal, mede quanto o dado permite reidentificar
+alguém e mede a equidade da decisão por faixa etária, com duas métricas que discordam.
 
 ---
 
@@ -1290,7 +1297,7 @@ E as que a camada de monitoramento acrescenta:
   anos" só é observável dois anos depois —, e é justamente esse atraso que torna a
   degradação silenciosa um problema. Nada aqui modela essa defasagem.
 - **A nula empírica do PSI está medida e não está sendo usada para decidir.** A severidade
-  continua saindo da convenção 0,10 / 0,25, que a própria medição mostra ser cerca de 60
+  continua saindo da convenção 0,10 / 0,25, que a própria medição mostra ser cerca de 62
   vezes mais folgada que o p95 do acaso. A decisão de manter a convenção é deliberada e
   está argumentada, mas um limiar intermediário — informado pela nula e mais apertado que a
   convenção — não foi calibrado.
