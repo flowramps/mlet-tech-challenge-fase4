@@ -7,7 +7,7 @@ dispara no PSI de feature mais alto aponta consistentemente para a causa errada 
 não diz se ALGUM sinal observável sem rótulo (`credito.monitoring.proxies`) rastreia a
 degradação real. Só é possível responder essa pergunta porque a simulação da Etapa 2 *tem*
 rótulo: nenhum sistema em produção consegue rodar esta validação, porque não teria a
-degradação real para comparar (ver `a-ideia-central.md`).
+degradação real para comparar (ver `docs/monitoring_plan.md`).
 
 **O método.** Para cada lote simulado, computa-se cada proxy de `monitoring.proxies` e a
 degradação real medida contra o campeão publicado (`credito.drift.calibration.
@@ -334,11 +334,11 @@ class MagnitudeDoProxy(NamedTuple):
     `variacao_relativa` compara o movimento total ao próprio valor de partida — mas é
     instável quando esse valor de partida está perto de zero (um proxy que sai de 0,001 e
     chega a 0,03 "cresce 30 vezes" sem que isso signifique que ele ficou operacionalmente
-    perceptível: `psi_do_score` no regime desta etapa é exatamente esse caso, ver o
-    relatório da task). `passo_medio_absoluto` — a média do módulo do passo mês a mês — não
-    tem essa instabilidade específica (não depende de dividir por um valor de partida perto
-    de zero) e é a medida que `escolher_alarme` usa para desempatar quando `rho` sozinho não
-    distingue.
+    perceptível: `psi_do_score` no regime desta etapa é exatamente esse caso, ver
+    `reports/validacao_de_proxy.json`, chave `magnitudes`). `passo_medio_absoluto` — a média
+    do módulo do passo mês a mês — não tem essa instabilidade específica (não depende de
+    dividir por um valor de partida perto de zero) e é a medida que `escolher_alarme` usa
+    para desempatar quando `rho` sozinho não distingue.
 
     **Isso não a torna livre de limitação.** `confianca_media` e `taxa_de_aprovacao` são
     frações de verdade, matematicamente presas a `[0, 1]`; `psi_do_score` é uma divergência
@@ -349,7 +349,7 @@ class MagnitudeDoProxy(NamedTuple):
     desempate por magnitude por causa da unidade em que PSI tende a crescer, não porque o
     sinal seja de fato mais forte — o mesmo tipo de acidente que motivou trocar a escolha
     alfabética de `escolher_alarme` por um critério medido. Neste run isso não acontece
-    (`psi_do_score` não passa de 0,03 em nenhum mês, ver o relatório da task), e
+    (`psi_do_score` não passa de 0,03 em nenhum mês, ver `docs/monitoring_plan.md`), e
     `passo_medio_absoluto` continua sendo a melhor das duas medidas disponíveis aqui — mas
     uma calibração formal de limiar por proxy (a mesma tarefa que precisa definir um
     limiar operacional para `taxa_de_aprovacao`) precisaria normalizar cada proxy pela
@@ -568,7 +568,8 @@ def escolher_alarme(
 
     `None` é uma resposta honesta e esperada, não uma falha da função: o achado "nenhum
     proxy antecipa a degradação com confiança" (ou "o empate não se resolve nem por
-    magnitude") é tão válido quanto "este proxy antecipa" — ver `a-ideia-central.md`.
+    magnitude") é tão válido quanto "este proxy antecipa" — ver `docs/monitoring_plan.md`,
+    seção do que não é monitorado.
     """
     topo = proxies_no_topo(correlacoes, campo=campo)
     if not topo:

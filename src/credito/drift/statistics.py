@@ -56,10 +56,13 @@ variáveis que ninguém mediu.
 
 Para `NumberOfTime30-59DaysPastDueNotWorse` especificamente: entre o mês 0 e o mês 6 do
 simulador de Produção da Etapa 2 (`credito.data.simulate.simular_producao`, seed=42,
-sobre a Referência real), seus zeros caem de 83,1% para 70,6% e a média mais que dobra —
-deslocamento real e grande. Medido: PSI por quantil ≈ 0,090 (abaixo de 0,10, "estável"
-pela convenção do setor) contra PSI por valor (um bin por valor distinto) ≈ 0,141 (banda
-de atenção, 0,10-0,25). O binning por quantil não crasha — ele esconde o drift.
+aplicado à Referência inteira — 117.917 linhas), seus zeros caem de 83,1% para 70,6% e a
+média mais que dobra — deslocamento real e grande. Medido: PSI por quantil ≈ 0,090 (abaixo
+de 0,10, "estável" pela convenção do setor) contra PSI por valor (um bin por valor distinto)
+≈ 0,141 (banda de atenção, 0,10-0,25). O binning por quantil não crasha — ele esconde o
+drift. O README mostra o mesmo efeito com números um pouco diferentes (83,62% → 71,09%;
+0,0916 contra 0,1442) porque mede sobre a partição de teste, que é a amostra que `make
+monitor` de fato desloca.
 """
 
 from __future__ import annotations

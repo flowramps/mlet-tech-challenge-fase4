@@ -88,7 +88,7 @@ def _imprimir_recomendacao(resultado: dict) -> None:
         else:
             print(
                 f"empate contra {campo} entre {list(topo)!r}, e a magnitude também empata — "
-                "sem recomendação única (ver o relatório da task)"
+                "sem recomendação única (ver reports/validacao_de_proxy.json)"
             )
 
 

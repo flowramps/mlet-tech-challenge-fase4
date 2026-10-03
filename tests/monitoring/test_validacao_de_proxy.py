@@ -651,13 +651,13 @@ def test_escolher_alarme_desempata_empate_de_rho_pela_maior_magnitude():
 
 
 def test_escolher_alarme_desempata_por_passo_medio_mesmo_quando_variacao_relativa_discorda():
-    # O ponto do Minor que a revisão levantou: as duas medidas de MagnitudeDoProxy podem
-    # apontar para vencedores DIFERENTES (exatamente o que o run real mediu — ver o
-    # relatório da task). Este teste usa MagnitudeDoProxy completo, não o atalho
-    # `_magnitude()` (que zera variacao_relativa em toda entrada e não seria capaz de
-    # expor esta divergência), com os números reais do run: psi_do_score vence em variação
-    # relativa (+2080%) mas perde em passo médio absoluto (0,0056 < 0,0079) para
-    # taxa_de_aprovacao. escolher_alarme precisa seguir passo_medio_absoluto.
+    # As duas medidas de MagnitudeDoProxy podem apontar para vencedores DIFERENTES
+    # (exatamente o que o run real mediu — ver `reports/validacao_de_proxy.json`). Este
+    # teste usa MagnitudeDoProxy completo, não o atalho `_magnitude()` (que zera
+    # variacao_relativa em toda entrada e não seria capaz de expor esta divergência), com os
+    # números reais do run: psi_do_score vence em variação relativa (+2080%) mas perde em
+    # passo médio absoluto (0,0056 < 0,0079) para taxa_de_aprovacao. escolher_alarme precisa
+    # seguir passo_medio_absoluto.
     correlacoes = {
         "psi_do_score": {"degradacao_auc_roc": _resultado(1.0, 0.003)},
         "taxa_de_aprovacao": {"degradacao_auc_roc": _resultado(-1.0, 0.003)},

@@ -15,12 +15,13 @@ seria mensurável em produção — as entradas que o modelo recebeu e o que ele
 por isso não pode importar a coluna de rótulo em lugar nenhum: fazer isso apagaria a
 distinção que o módulo existe para provar.
 
-Os quatro sinais, na mesma tabela de candidatos que a Etapa 3 se propõe a validar
-(`a-ideia-central.md`): deslocamento da distribuição de score (`psi_do_score`), queda da
-confiança média (`confianca_media`), deriva da taxa de aprovação agregada
-(`taxa_de_aprovacao`) e a composição das três para um lote (`sinais_do_lote`). Nenhum
-decide sozinho se é o melhor proxy da degradação real — essa correlação é medida à parte,
-lote a lote, contra a Etapa 2; aqui só o cálculo de cada sinal é responsabilidade.
+Os quatro sinais, na mesma tabela de candidatos que `credito.monitoring.validacao_de_proxy`
+valida contra a degradação real (ver `docs/monitoring_plan.md`): deslocamento da
+distribuição de score (`psi_do_score`), queda da confiança média (`confianca_media`), deriva
+da taxa de aprovação agregada (`taxa_de_aprovacao`) e a composição das três para um lote
+(`sinais_do_lote`). Nenhum decide sozinho se é o melhor proxy da degradação real — essa
+correlação é medida à parte, lote a lote, contra a Etapa 2; aqui só o cálculo de cada sinal
+é responsabilidade.
 """
 
 from __future__ import annotations
