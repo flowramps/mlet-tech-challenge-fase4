@@ -428,8 +428,9 @@ de adivinhando.
 
 `make monitor` roda a camada inteira: seis lotes mensais simulados, cada um passando por
 contrato → predição do campeão → PSI e KS próprios → relatório HTML do Evidently, e um gate
-que consolida os seis numa decisão. A execução que produziu todos os números desta seção
-levou **17,7 s** de relógio nesta máquina.
+que consolida os seis numa decisão. A execução que produz todos os números desta seção
+leva **19,1 s** de relógio nesta máquina (mediana de três execuções: 18,8 / 19,1 / 20,9 s,
+já incluindo o registro no MLflow).
 
 **A ordem desta seção é deliberada**, e é a mesma ordem em que `reports/monitoramento.json`
 grava as coisas: a consequência primeiro, a tabela de PSI depois. Quem lê a tabela de PSI
@@ -1103,20 +1104,34 @@ responde sem gravar, o que é bom para a minimização e deixa o direito de revi
 
 ## Como executar
 
-Pré-requisitos: **Python 3.12** e **Poetry 2.x** (validado com Python 3.12.13 e Poetry
-2.3.2). Nenhuma credencial é necessária.
+| Pré-requisito | Para quê | Validado com |
+|---|---|---|
+| **Python 3.12** | tudo | 3.12.13 |
+| **Poetry 2.x** | dependências e ambiente virtual | 2.3.2 |
+| **GNU make** | os alvos abaixo | 4.3 |
+| **Docker** com Compose v2 | só a pilha de observabilidade (API + Prometheus + Grafana) | 29.5 / v5.1 |
+
+Nenhuma credencial é necessária: o dataset vem de URL pública, com md5 verificado.
+
+**O caminho curto** — do clone a todo número publicado neste README:
 
 ```bash
-git clone <url-do-repositorio>
-cd <diretorio-do-repositorio>
+git clone https://github.com/flowramps/mlet-tech-challenge-fase4.git
+cd mlet-tech-challenge-fase4
+make install      # dependências e hooks de pre-commit
+make test         # a suíte, antes de qualquer outra coisa
+make reproduzir   # dado → treino → drift → degradação → proxies → privacidade
+```
 
-make install        # instala dependências e os hooks de pre-commit
+**Passo a passo**, para entender o que cada etapa produz:
+
+```bash
 make data           # baixa o dataset público (7,2 MB) e verifica o md5
 make train          # treina os candidatos, avalia e promove o campeão
 make monitor        # simula a produção, mede o drift e gera os relatórios HTML
 ```
 
-Os quatro comandos na ordem acima levam um clone limpo até o veredito de drift. `make
+Os três comandos na ordem acima levam um clone limpo até o veredito de drift. `make
 monitor` exige um campeão publicado (`models/model.joblib`), ou seja, `make train` antes —
 ele monitora o modelo que está servindo, não treina nenhum.
 
@@ -1136,7 +1151,7 @@ E `make monitor` deixa em `reports/`:
   PSI e KS por feature nas duas implementações, a decomposição causal de cada mês e o
   veredito do gate.
 
-`reports/` é ignorado pelo git (28 MB de HTML por execução, reproduzíveis em 17,7 s); o
+`reports/` é ignorado pelo git (28 MB de HTML por execução, reproduzíveis em cerca de 19 s); o
 que vai para o repositório é o print em `docs/images/`.
 
 Demais alvos:
@@ -1164,7 +1179,11 @@ O Grafana abre em `localhost:3000` (`admin`/`admin`, só para esta demonstraçã
 o dashboard já provisionado; o MLflow em `localhost:5000`; a API em `localhost:8000`.
 
 Rodar `make train` uma segunda vez **não falha**: o retreino reproduz o incumbente, o gate
-recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto.
+recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto — e tem
+uma consequência que vale saber: como não há promoção, `metrics/metrics.json` **não é
+regravado**. Para regenerá-lo depois de mudar o código de avaliação, apague
+`models/model.joblib` antes de treinar; com a semente fixa, o campeão sai byte a byte
+idêntico (mesmo md5) e as métricas são gravadas de novo.
 
 Este percurso foi executado em um clone limpo, e não apenas descrito: partindo de um
 `git clone` novo, `make install && make data && make train && make monitor` terminou com
