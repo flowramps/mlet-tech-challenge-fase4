@@ -1193,6 +1193,10 @@ make test         # a suíte, antes de qualquer outra coisa
 make reproduzir   # dado → treino → drift → degradação → proxies → privacidade
 ```
 
+Verificado num clone limpo: a suíte passa antes de qualquer outro alvo, e `make reproduzir`
+termina em **58 s** nesta máquina, com o campeão byte a byte idêntico ao publicado (md5
+`567d4533bf2f46c425d22e59adcd8aac`) e todos os números deste README regenerados.
+
 **Passo a passo**, para entender o que cada etapa produz:
 
 ```bash
