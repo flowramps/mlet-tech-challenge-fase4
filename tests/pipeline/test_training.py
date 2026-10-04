@@ -63,6 +63,7 @@ def ambiente(tmp_path, monkeypatch):
     monkeypatch.setenv("CREDITO_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CREDITO_MODELS_DIR", str(tmp_path / "models"))
     monkeypatch.setenv("CREDITO_METRICS_DIR", str(tmp_path / "metrics"))
+    monkeypatch.setenv("CREDITO_MLRUNS_DIR", str(tmp_path / "mlruns"))
     monkeypatch.setenv("CREDITO_DATASET_FILENAME", "d.arff")
     # Pisos baixos de propósito: o que estes testes exercitam é o encadeamento, e um piso
     # calibrado sobre o dado real reprovaria este dado sintético por motivo irrelevante.
@@ -274,3 +275,96 @@ def test_main_converte_cada_interrupcao_numa_linha_legivel(
             assert saida.value.code == codigo_de_saida
 
     assert str(erro) in caplog.text
+
+
+# --- log de execução no MLflow: um run por treino, inclusive quando ele falha ------------
+
+
+def _runs_de_treino():
+    from mlflow.tracking import MlflowClient
+
+    from credito.config import get_settings
+
+    settings = get_settings()
+    cliente = MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
+    experimento = cliente.get_experiment_by_name(settings.mlflow_experimento_treino)
+    assert experimento is not None, "o treino não abriu experimento no MLflow"
+    return cliente.search_runs([experimento.experiment_id], order_by=["attributes.start_time ASC"])
+
+
+def test_treino_promovido_deixa_run_com_tarefas_e_volume(ambiente):
+    # O dado sintético do fixture é todo limpo: brutas == Referência, e a conta de descarte
+    # abaixo passaria com zero de qualquer jeito. Cinco linhas duplicadas no arquivo fazem a
+    # limpeza descartar de verdade, e a contabilidade tem o que fechar.
+    arquivo = ambiente / "raw" / "d.arff"
+    linhas = arquivo.read_text(encoding="utf-8").splitlines()
+    arquivo.write_text("\n".join([*linhas, *linhas[-5:]]) + "\n", encoding="utf-8")
+
+    executar_pipeline()
+
+    (run,) = _runs_de_treino()
+    assert run.info.status == "FINISHED"
+    assert run.data.tags["pipeline"] == "treino"
+    assert run.data.tags["desfecho"] == "promovido"
+    for tarefa in ("ingestao", "contrato", "treino", "avaliacao", "gate"):
+        assert run.data.metrics[f"tarefa.{tarefa}"] == 1.0, tarefa
+    metricas = run.data.metrics
+    # Volume da ingestão e da transformação: o que chegou, o que a limpeza descartou e por
+    # quê, e como a Referência se dividiu.
+    assert metricas["volume.linhas_brutas"] > metricas["volume.linhas_referencia"] > 0
+    descartes = {k: v for k, v in metricas.items() if k.startswith("volume.descartes.")}
+    assert metricas["volume.descartes.duplicata"] == 5
+    assert metricas["volume.linhas_brutas"] - metricas["volume.linhas_referencia"] == sum(
+        descartes.values()
+    )
+    assert (
+        metricas["volume.linhas_treino"]
+        + metricas["volume.linhas_validacao"]
+        + metricas["volume.linhas_teste"]
+        == metricas["volume.linhas_referencia"]
+    )
+
+
+def test_treino_nao_promovido_termina_finished_e_nao_falha(ambiente):
+    executar_pipeline()
+    with pytest.raises(ModelNotPromoted):
+        executar_pipeline()
+
+    _, segundo = _runs_de_treino()
+    assert segundo.info.status == "FINISHED"
+    assert segundo.data.tags["desfecho"] == "nao_promovido"
+    assert "falha.tipo" not in segundo.data.tags
+
+
+def test_piso_violado_deixa_run_failed_com_a_causa(ambiente, monkeypatch):
+    from credito.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("CREDITO_MIN_AUC_PR", "0.99")
+    with pytest.raises(QualityGateError):
+        executar_pipeline()
+
+    (run,) = _runs_de_treino()
+    assert run.info.status == "FAILED"
+    assert run.data.tags["falha.tipo"] == "QualityGateError"
+    assert run.data.metrics["tarefa.gate"] == 0.0
+
+
+def test_contrato_reprovado_deixa_run_failed_antes_de_treinar(ambiente, monkeypatch):
+    class _SempreRecusa:
+        def validar(self, frame):
+            return ValidationResult(
+                total=len(frame),
+                violacoes=(Violacao(regra="renda_nao_nula", coluna="MonthlyIncome", linhas=3),),
+            )
+
+    monkeypatch.setattr("credito.pipeline.training.construir_validador", lambda: _SempreRecusa())
+    with pytest.raises(ContratoViolado):
+        executar_pipeline()
+
+    (run,) = _runs_de_treino()
+    assert run.info.status == "FAILED"
+    assert run.data.tags["falha.tipo"] == "ContratoViolado"
+    assert run.data.metrics["tarefa.contrato"] == 0.0
+    assert run.data.metrics["volume.linhas_reprovadas"] == 3
+    assert "tarefa.treino" not in run.data.metrics

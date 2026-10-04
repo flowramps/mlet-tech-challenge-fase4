@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # um elemento só, mas nomeado em vez de literal espalhado pelo chamador, pela mesma
     # razão que `model_filename` já é campo em vez de string solta em `model.train`.
     mlflow_experimento: str = "credito-monitoramento"
+    # E o que agrupa os runs do treino: o log de execução de cada `make train`, inclusive
+    # os que falham (ver `credito.tracking.execucao`).
+    mlflow_experimento_treino: str = "credito-treino"
 
     # Redistribuição curada pelo OpenML do dataset da competição Kaggle "Give Me Some
     # Credit" (2011). O Kaggle exige autenticação, o que quebraria o clone limpo e o job
