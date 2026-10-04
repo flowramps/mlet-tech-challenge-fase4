@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Identificador** | `credito` — baseline de risco de inadimplência |
-| **Versão** | 1.1.0 |
+| **Versão** | 1.1.1 |
 | **Tipo** | Classificador binário de probabilidade |
 | **Arquitetura publicada** | `XGBClassifier` (300 árvores, profundidade 5, `scale_pos_weight` pela razão de classes), encapsulado em `sklearn.pipeline.Pipeline` |
 | **Artefato** | `models/model.joblib` — modelo e metadados no mesmo pacote |

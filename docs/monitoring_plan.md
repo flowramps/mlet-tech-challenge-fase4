@@ -54,6 +54,16 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   p99 sustentado **acima de 100 ms**, cerca de 4,5x o pior valor já observado.
 - **Quando disparar:** olhar a latência de inferência (painel 3) na mesma janela. Se ela
   não subiu na mesma proporção, o gargalo está fora do modelo.
+- **O custo medido de "sem registro, sem decisão".** Cada `/score` grava a decisão com
+  `fsync` antes de responder, e isso acopla a cauda da latência ao disco do host. Gravando
+  3 GB no disco durante o tráfego, o registro levou mediana de 1,9 ms, p99 de 176,6 ms e
+  **máximo de 16,1 s**; sem o `fsync`, 0,2 ms, 0,6 ms e 7,7 s — mesmo uma escrita simples
+  trava quando o kernel acumula escrita pendente demais. Foi o que derrubou, por timeout de
+  5 s do cliente, duas rodadas de tráfego logo depois de um build Docker. O `fsync` fica: sem
+  ele, uma decisão já emitida poderia sumir numa queda, e o direito de revisão perderia o
+  objeto. Em produção, o registro iria para um volume dedicado ou um armazenamento com
+  *group commit*; aqui, uma latência HTTP alta com inferência normal (painel 3) aponta
+  primeiro para o disco.
 
 ### 3. Latência de inferência — se está lento, é o modelo ou o servidor?
 

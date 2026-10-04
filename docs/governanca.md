@@ -176,6 +176,12 @@ exato que a tomou. A retenção é executável: `make expurgar-decisoes` remove 
 prazo que nada executa não elimina nada (art. 16). No container, o diretório de decisões é o
 único caminho gravável; código e modelo são só-leitura para o processo.
 
+**O preço da durabilidade, medido.** O `fsync` custa ~1,7 ms por decisão em condição
+normal, mas acopla a cauda da latência ao disco: sob 3 GB de escrita concorrente no host, a
+gravação chegou a 16,1 s (7,7 s sem o `fsync`). A troca é deliberada — uma decisão emitida e
+perdida numa queda seria uma decisão que ninguém consegue rever — e está documentada, com o
+que fazer em produção, em `docs/monitoring_plan.md` (painel 2).
+
 Verificado contra mutação, inclusive a corrida que mais importa: uma decisão gravada
 enquanto o expurgo reescreve o arquivo iria para o arquivo antigo e sumiria na troca. O
 teste força essa corrida de forma determinística; ele falha 5 vezes em 5 sem a trava e
