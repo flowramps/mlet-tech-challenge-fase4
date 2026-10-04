@@ -5,6 +5,22 @@ versão tem uma tag no commit de merge correspondente (`git checkout v0.2.0` dev
 repositório exatamente como a Etapa 2 o deixou). Os números citados abaixo são os medidos
 na própria etapa; os atuais estão no README.
 
+## [1.1.1] — o timeout que a validação final achou
+
+A validação final, num clone feito pela URL pública, reproduziu uma falha que já tinha
+aparecido duas vezes e passado sem causa: o gerador de tráfego morria por timeout no meio
+da rodada.
+
+### Corrigido
+- O gerador de tráfego conta um timeout como resultado, em vez de parar a rodada com
+  traceback — era o que escondia a causa.
+
+### Documentado
+- A causa: a gravação do registro de decisão com `fsync` acopla a latência ao disco do
+  host. Sob 3 GB de escrita concorrente, até 16,1 s (7,7 s sem o `fsync` — a escrita simples
+  também trava). O `fsync` fica, pela durabilidade que o direito de revisão exige; o custo e
+  o que fazer em produção estão no plano de monitoramento, na governança e no README.
+
 ## [1.1.0] — os logs de execução do pipeline, centralizados
 
 A auditoria final contra o enunciado achou o critério de observabilidade parcial: ele pede
@@ -151,6 +167,7 @@ contexto conseguir entendê-lo e reproduzi-lo.
 - Gate de promoção com pisos medidos e duas exceções distintas — falha contra "nada a fazer".
 - Recorte de métricas por faixa etária.
 
+[1.1.1]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.5.0...v1.0.0
 [0.5.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.4.0...v0.5.0

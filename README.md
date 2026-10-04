@@ -1492,6 +1492,10 @@ E as que a camada de observabilidade acrescenta — detalhe completo em
   lote (MLflow); ligar um deles a um `Gauge`/pushgateway é decisão ainda não tomada —
   declarada como pendente nos dois painéis do dashboard que dependeriam disso.
   Hoje o alarme ao vivo é só `taxa_de_aprovacao`.
+- **A latência do `/score` está acoplada ao disco.** "Sem registro, sem decisão" grava cada
+  decisão com `fsync` antes de responder: ~1,7 ms em condição normal, mas até 16,1 s medidos
+  com 3 GB de escrita concorrente no host. A durabilidade é deliberada; em produção, o
+  registro pediria um volume dedicado ou um armazenamento com *group commit*.
 - **Tracking e métricas rodam num único nó local**, sem servidor remoto de MLflow nem
   alta disponibilidade do Prometheus/Grafana — adequado para demonstrar a camada, não
   para operar em produção.

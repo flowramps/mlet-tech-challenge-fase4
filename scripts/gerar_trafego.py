@@ -62,16 +62,29 @@ def _payload_invalido() -> dict[str, float | int]:
     return payload
 
 
-def gerar_trafego(*, base_url: str, n: int, seed: int, cliente: httpx.Client) -> dict[int, int]:
+def _enviar(cliente: httpx.Client, url: str, payload: dict) -> int | str:
+    """Status HTTP da resposta, ou `"timeout"`: um timeout é um resultado a contar, não um
+    motivo para abandonar a rodada. Ele aparece de verdade — a gravação do registro de
+    decisão com `fsync` trava por segundos quando o host está escrevendo muito em disco
+    (medido, ver `docs/monitoring_plan.md`) — e antes derrubava o script no meio."""
+    try:
+        return cliente.post(url, json=payload, timeout=5.0).status_code
+    except httpx.TimeoutException:
+        return "timeout"
+
+
+def gerar_trafego(
+    *, base_url: str, n: int, seed: int, cliente: httpx.Client
+) -> dict[int | str, int]:
     """Envia `n` requisições a `{base_url}/score` e devolve a contagem por status HTTP."""
     gerador = random.Random(seed)
-    contagem: dict[int, int] = {}
+    contagem: dict[int | str, int] = {}
 
     for indice in range(n):
         invalida = (indice % _CADENCIA_INVALIDA) == (_CADENCIA_INVALIDA - 1)
         payload = _payload_invalido() if invalida else _payload_valido(gerador)
-        resposta = cliente.post(f"{base_url}/score", json=payload, timeout=5.0)
-        contagem[resposta.status_code] = contagem.get(resposta.status_code, 0) + 1
+        resultado = _enviar(cliente, f"{base_url}/score", payload)
+        contagem[resultado] = contagem.get(resultado, 0) + 1
 
     return contagem
 
@@ -103,12 +116,12 @@ def _payloads_do_lote(nome: str, n: int, seed: int) -> list[dict[str, float]]:
 
 def enviar_lote(
     *, base_url: str, payloads: list[dict[str, float]], cliente: httpx.Client
-) -> dict[int, int]:
+) -> dict[int | str, int]:
     """Envia cada payload a `{base_url}/score` e devolve a contagem por status HTTP."""
-    contagem: dict[int, int] = {}
+    contagem: dict[int | str, int] = {}
     for payload in payloads:
-        resposta = cliente.post(f"{base_url}/score", json=payload, timeout=5.0)
-        contagem[resposta.status_code] = contagem.get(resposta.status_code, 0) + 1
+        resultado = _enviar(cliente, f"{base_url}/score", payload)
+        contagem[resultado] = contagem.get(resultado, 0) + 1
     return contagem
 
 
