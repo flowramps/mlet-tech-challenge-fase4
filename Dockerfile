@@ -36,6 +36,7 @@ WORKDIR /app
 # Usuário sem privilégio: um comprometimento do processo de inferência não vira root
 # dentro do container.
 RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p /app/decisoes && chown appuser:appuser /app/decisoes \
     && python -m pip uninstall --yes pip \
     && apt-get update \
     && apt-get upgrade --yes --no-install-recommends \
@@ -65,7 +66,8 @@ COPY src ./src
 COPY models/ ./models/
 
 # Sem `chown`: código, virtualenv e modelo ficam de root, legíveis pelo `appuser` e não
-# graváveis por ele. O processo só lê (com PYTHONDONTWRITEBYTECODE nem `.pyc` ele grava), e
+# graváveis por ele. O único diretório gravável é `/app/decisoes`, criado acima — o
+# registro de decisão de crédito, montado como volume no `docker-compose.yml`. O processo só lê (com PYTHONDONTWRITEBYTECODE nem `.pyc` ele grava), e
 # um processo comprometido não consegue reescrever o próprio código nem trocar o modelo.
 # Um `RUN chown -R` aqui também duplicava o virtualenv inteiro numa camada nova — medido:
 # 1,65 GB a mais na imagem e minutos a mais em todo build.

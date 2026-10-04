@@ -136,15 +136,19 @@
       "id": 5,
       "type": "timeseries",
       "title": "Taxa de aprovação — a decisão agregada derivou? (alarme)",
-      "description": "credito_taxa_de_aprovacao: fração aprovada sobre uma janela deslizante das últimas requisições, calculada por credito.monitoring.proxies.taxa_de_aprovacao — o proxy sem rótulo que a Etapa 3 mediu como o mais forte contra degradação real (passo médio 0,0079).",
+      "description": "credito_taxa_de_aprovacao: fração aprovada nas últimas 2.000 decisões, calculada por credito.monitoring.proxies.taxa_de_aprovacao — o proxy sem rótulo que mais acompanhou a degradação real. A linha tracejada é o limiar calibrado (77,55%): janelas sem drift só o cruzam 1% das vezes; abaixo dele, com a janela cheia, por 5 minutos, a regra TaxaDeAprovacaoAbaixoDoLimiarCalibrado dispara (ver /alerts no Prometheus).",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "min": 0,
+          "min": 0.6,
           "max": 1,
-          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0.7755 }]
+          }
         },
         "overrides": []
       },

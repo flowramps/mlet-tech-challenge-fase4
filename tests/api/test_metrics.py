@@ -204,3 +204,22 @@ def test_cada_aplicacao_tem_registro_proprio():
         corpo = segunda.get("/metrics").text
 
     assert 'route="/score"' not in corpo
+
+
+def test_amostras_na_janela_crescem_ate_o_tamanho_da_janela_e_param(client):
+    # A regra de alerta só avalia com a janela cheia: com 3 decisões, a taxa de aprovação
+    # é ruído puro — a calibração mediu o limiar para janelas de JANELA_TAXA_DE_APROVACAO
+    # decisões, não de 3. Este gauge é o que a regra usa para saber se a janela encheu.
+    import credito.api.metrics as modulo
+
+    janela = client.app.state.metrics._janela
+    for _ in range(janela.maxlen + 5):
+        client.post("/score", json=_payload())
+
+    corpo = client.get("/metrics").text
+    assert f"credito_taxa_de_aprovacao_amostras {float(janela.maxlen)}" in corpo
+    assert janela.maxlen == modulo.JANELA_TAXA_DE_APROVACAO
+
+
+def test_amostras_comecam_em_zero_antes_de_qualquer_decisao(client):
+    assert "credito_taxa_de_aprovacao_amostras 0.0" in client.get("/metrics").text

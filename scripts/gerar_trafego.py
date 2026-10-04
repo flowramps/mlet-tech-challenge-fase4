@@ -7,6 +7,12 @@ uma inválida (falta `MonthlyIncome`) — é o que dá ao painel de tráfego e e
 para mostrar, sem nunca produzir um `5xx` de propósito (a API responde `422` a payload
 malformado; um `5xx` seria bug, não entrada ruim, ver `docs/monitoring_plan.md`).
 
+Com `--lote mes_06` (ou qualquer `mes_00` … `mes_06`), em vez de payloads aleatórios envia
+linhas reais daquele mês da simulação de Produção (`credito.data.simulate`): é o tráfego que
+carrega o drift de verdade, e o que faz a taxa de aprovação ao vivo cair até o alerta
+calibrado disparar (`docker/prometheus/alertas.yml`). Exige o dataset (`make data`). Sem
+inválidas nesse modo: o ponto é medir a decisão, não o erro.
+
 Não faz parte da suíte automatizada pelo mesmo motivo que os demais scripts de
 `scripts/`: toca rede de verdade (a API precisa estar no ar).
 """
@@ -70,16 +76,57 @@ def gerar_trafego(*, base_url: str, n: int, seed: int, cliente: httpx.Client) ->
     return contagem
 
 
+def _payloads_do_lote(nome: str, n: int, seed: int) -> list[dict[str, float]]:
+    """`n` linhas sorteadas de um mês da simulação, no formato do corpo de `/score`.
+
+    Importa o pipeline só aqui: o modo aleatório não precisa do dataset nem das dependências
+    do grupo `pipeline`.
+    """
+    from credito.config import get_settings
+    from credito.data.arff import ler_arff
+    from credito.data.prepare import limpar, separar
+    from credito.data.simulate import MESES, simular_producao
+    from credito.schema import FEATURES
+
+    settings = get_settings()
+    referencia, _ = limpar(ler_arff(settings.dataset_path))
+    teste = separar(
+        referencia,
+        test_size=settings.test_size,
+        validation_size=settings.validation_size,
+        seed=settings.random_seed,
+    )["teste"]
+    lote = simular_producao(teste, meses=MESES, seed=settings.random_seed)[nome]
+    amostra = lote[list(FEATURES)].sample(n=n, replace=n > len(lote), random_state=seed)
+    return [{k: float(v) for k, v in linha.items()} for linha in amostra.to_dict("records")]
+
+
+def enviar_lote(
+    *, base_url: str, payloads: list[dict[str, float]], cliente: httpx.Client
+) -> dict[int, int]:
+    """Envia cada payload a `{base_url}/score` e devolve a contagem por status HTTP."""
+    contagem: dict[int, int] = {}
+    for payload in payloads:
+        resposta = cliente.post(f"{base_url}/score", json=payload, timeout=5.0)
+        contagem[resposta.status_code] = contagem.get(resposta.status_code, 0) + 1
+    return contagem
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    # httpx loga cada requisição em INFO — 600 linhas de eco que escondem a única que
+    # httpx loga cada requisição em INFO — milhares de linhas de eco que escondem a única que
     # importa (a contagem final por status).
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     analisador = argparse.ArgumentParser(description=__doc__)
     analisador.add_argument("--base-url", default="http://localhost:8000")
-    analisador.add_argument("--n", type=int, default=600)
+    # 2.500 por padrão: o suficiente para encher a janela da taxa de aprovação
+    # (`credito.api.metrics.JANELA_TAXA_DE_APROVACAO`, 2.000) e a regra de alerta avaliar.
+    analisador.add_argument("--n", type=int, default=2_500)
     analisador.add_argument("--seed", type=int, default=7)
+    analisador.add_argument(
+        "--lote", default=None, help="mes_00 … mes_06: envia linhas reais daquele mês simulado"
+    )
     argumentos = analisador.parse_args()
 
     with httpx.Client() as cliente:
@@ -87,9 +134,13 @@ def main() -> None:
         resposta_saude.raise_for_status()
         logger.info("API saudável: %s", resposta_saude.json())
 
-        contagem = gerar_trafego(
-            base_url=argumentos.base_url, n=argumentos.n, seed=argumentos.seed, cliente=cliente
-        )
+        if argumentos.lote:
+            payloads = _payloads_do_lote(argumentos.lote, argumentos.n, argumentos.seed)
+            contagem = enviar_lote(base_url=argumentos.base_url, payloads=payloads, cliente=cliente)
+        else:
+            contagem = gerar_trafego(
+                base_url=argumentos.base_url, n=argumentos.n, seed=argumentos.seed, cliente=cliente
+            )
 
     logger.info("%d requisições enviadas, contagem por status: %s", argumentos.n, contagem)
 

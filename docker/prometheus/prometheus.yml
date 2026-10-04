@@ -8,6 +8,10 @@ global:
   scrape_interval: 5s
   evaluation_interval: 5s
 
+# Regras de alerta provisionadas por arquivo; os alertas aparecem em /alerts do Prometheus.
+rule_files:
+  - alertas.yml
+
 scrape_configs:
   # Um único job, um único alvo: a API de scoring instrumentada por credito.api.metrics.
   # Nome do serviço (`api`), não IP — resolvido pela rede do Docker Compose.

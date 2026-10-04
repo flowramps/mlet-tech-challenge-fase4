@@ -18,7 +18,7 @@
 | **Contrato** | seis regras; um lote adulterado é bloqueado com a contagem exata de cada defeito |
 | **Degradação silenciosa** | sob seis meses de mudança simulada, o recall cai **45,1%** e o poder discriminativo acima do piso, **59,2%** — sem uma única linha inválida |
 | **De onde ela vem** | concept drift responde por **48,0%** da queda; as duas variáveis de maior PSI, por **3,1%** |
-| **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); o corte convencional de PSI nunca dispararia |
+| **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); calibrada numa janela de 2.000 decisões, vira uma regra de alerta no Prometheus — vista disparando com tráfego do mês 6 |
 | **Privacidade** | sem CPF, mas **53,30%** das pessoas são únicas em idade + renda + dependentes; generalizar reduz a exposição a **0,01%** |
 | **Equidade** | duas métricas formais que **discordam**: os 4/5 apontam os jovens, a igualdade de oportunidade aponta os idosos |
 | **Engenharia** | `make reproduzir` regenera todo número deste README; imagem de 1,25 GB sem vulnerabilidade HIGH corrigível; cobertura de 98% com piso na CI |
@@ -29,8 +29,8 @@
 |---|---|---|---|
 | **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
 | **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · `reports/drift_mes_*.html` | `make monitor` |
-| **Observabilidade e logs** (20%) | métricas de saúde e alertas de drift visíveis; rastreamento; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic` · `make mlflow-up` |
-| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) | `make auditar-privacidade` · `equidade` em `metrics/metrics.json` |
+| **Observabilidade e logs** (20%) | métricas de saúde e alertas de drift visíveis; rastreamento; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic LOTE=mes_06` · `make calibrar-alarme` · `make mlflow-up` |
+| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
 | **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
 | **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
 
@@ -1093,13 +1093,37 @@ explicam só 3,1% da degradação real, enquanto o concept drift — invisível 
 O painel de PSI por feature é texto, não gráfico: a métrica só existe em lote (MLflow),
 nunca por requisição na API — decisão declarada no próprio painel, não escondida.
 
+### O alarme, calibrado e visto disparando
+
+A validação de proxies mede a taxa de aprovação sobre lotes mensais de 23.584 decisões; a
+API a lê numa janela das últimas N decisões, muito menor e mais ruidosa. `make
+calibrar-alarme` mede essa janela: sorteando janelas sem drift, o limiar fica onde elas só
+caem 1% das vezes; aplicado a cada mês de drift, mede-se que fração das janelas dispara.
+
+| Janela | Desvio sem drift | Limiar | Mês 1 | Mês 3 | Mês 6 |
+|---:|---:|---:|---:|---:|---:|
+| 500 | 1,80 p.p. | 0,7560 | 5,7% | 25,4% | 68,1% |
+| **2.000** | 0,89 p.p. | **0,7755** | 14,9% | **79,5%** | 100,0% |
+| 5.000 | 0,56 p.p. | 0,7828 | 35,0% | 99,5% | 100,0% |
+
+**A janela era de 500, por convenção, e a medição mostrou que ela era fraca:** o ruído
+dela (1,8 p.p.) é maior que a queda de um mês inteiro de degradação (0,79 p.p.), e mesmo no
+mês 6 um terço das janelas não disparava. Passou a 2.000. A regra
+`TaxaDeAprovacaoAbaixoDoLimiarCalibrado` (`docker/prometheus/alertas.yml`) dispara abaixo
+de 0,7755 com a janela cheia, por 5 minutos — testada com `promtool test rules` no CI, e
+travada por teste aos números do código e à linha tracejada do painel. Com a pilha de pé,
+2.500 decisões do mês 0 deixaram a taxa em 79,9% e nenhum alerta; 2.500 do mês 6
+(`make traffic LOTE=mes_06`) a levaram a 74,8%, e o alerta disparou:
+
+![Alerta da taxa de aprovação disparado no Prometheus](docs/images/prometheus-alertas.png)
+
 ### O que esta camada não resolve
 
 A degradação real continua impossível de medir em produção — é a limitação estrutural
-que nenhuma instrumentação remove, só contorna. E o limiar de `taxa_de_aprovacao` medido
-sobre lotes de 23.584 scores não foi recalibrado para a janela de 500 requisições que a
-API expõe ao vivo — extrapolação, não medição, declarada como tal. A lista completa, com
-o porquê de cada item, está em [`docs/monitoring_plan.md`](docs/monitoring_plan.md).
+que nenhuma instrumentação remove, só contorna. E o alarme vê a degradação tarde: com a
+janela de 2.000, pega 14,9% das janelas no primeiro mês e 79,5% no terceiro. A lista
+completa, com o porquê de cada item, está em
+[`docs/monitoring_plan.md`](docs/monitoring_plan.md).
 
 ---
 
@@ -1163,12 +1187,20 @@ duas de maior PSI respondem por 3,1% da degradação), e os critérios podem dei
 sem que nenhuma entrada mude (concept drift, 48,0%) — por isso a informação sobre critérios
 que o art. 20, §1º exige precisa ser versionada junto com o modelo e o monitoramento.
 
-**Retenção.** O vetor de features não é gravado; a Referência fica enquanto o modelo
+**Registro de decisão: o direito de revisão com objeto.** Cada `/score` devolve um
+`id_decisao`, e a decisão é gravada **antes** de ser emitida — entradas, probabilidade,
+limiar e o sha256 do modelo que a tomou, sem identificador nenhum: é o sistema de origem
+que liga o id à pessoa. Se a gravação falha, a API responde `503`, e nenhuma decisão sai
+sem registro. `make consultar-decisao ID=…` reconstrói a decisão no servidor (sem rota
+HTTP: o registro tem dado pessoal, e a API não tem autenticação) e, com o mesmo modelo,
+repontua e confere — verificado com o campeão real: uma recusa reconstruída idêntica até o
+último dígito.
+
+**Retenção.** O vetor de features só é gravado no registro de decisão, que fica 5 anos —
+prazo alinhado ao teto do CDC para informação negativa (art. 43, §1º) — e é expurgado por
+`make expurgar-decisoes`, feito para rodar agendado. A Referência fica enquanto o modelo
 treinado nela estiver em produção, mais um ciclo de retreino, e depois é generalizada ou
-eliminada; o registro de decisão, quando existir, fica 5 anos — prazo alinhado ao teto do
-CDC para informação negativa (art. 43, §1º). **Esse registro ainda não existe:** a API
-responde sem gravar, o que é bom para a minimização e deixa o direito de revisão sem objeto.
-É o próximo componente, já especificado no documento.
+eliminada.
 
 ---
 
@@ -1190,11 +1222,11 @@ git clone https://github.com/flowramps/mlet-tech-challenge-fase4.git
 cd mlet-tech-challenge-fase4
 make install      # dependências e hooks de pre-commit
 make test         # a suíte, antes de qualquer outra coisa
-make reproduzir   # dado → treino → drift → degradação → proxies → privacidade
+make reproduzir   # dado → treino → drift → degradação → proxies → alarme → privacidade
 ```
 
 Verificado num clone limpo: a suíte passa antes de qualquer outro alvo, e `make reproduzir`
-termina em **58 s** nesta máquina, com o campeão byte a byte idêntico ao publicado (md5
+termina em **77,5 s** nesta máquina, com o campeão byte a byte idêntico ao publicado (md5
 `567d4533bf2f46c425d22e59adcd8aac`) e todos os números deste README regenerados.
 
 **Passo a passo**, para entender o que cada etapa produz:
@@ -1238,6 +1270,7 @@ make demo-contrato        # mostra o contrato bloqueando um lote adulterado
 make verificar-degradacao # degradação monotônica + o contraexperimento que a calibra
 make validar-proxies      # quanto cada proxy sem rótulo antecipa a degradação real
 make auditar-privacidade  # risco de reidentificação da Referência e efeito da generalização
+make calibrar-alarme      # limiar e poder do alarme ao vivo; falha se o limiar publicado divergir
 ```
 
 E a pilha de observabilidade (requer `make train` antes, para ter um campeão para servir):
@@ -1245,8 +1278,16 @@ E a pilha de observabilidade (requer `make train` antes, para ter um campeão pa
 ```bash
 make observabilidade-up   # sobe API + Prometheus + Grafana via Docker Compose
 make traffic              # gera tráfego real contra /score para os painéis mostrarem algo
+make traffic LOTE=mes_06  # linhas reais do mês 6 da simulação: o alerta calibrado dispara
 make mlflow-up            # UI do MLflow contra o SQLite que `make monitor` grava
-make observabilidade-down # derruba a pilha
+make observabilidade-down # derruba a pilha (com `docker compose down -v`, apaga também o registro de decisão)
+```
+
+E a operação do registro de decisão, no servidor que o guarda:
+
+```bash
+make consultar-decisao ID=<id_decisao>  # reconstrói e repontua uma decisão para revisão
+make expurgar-decisoes                  # aplica a retenção de 5 anos (para rodar agendado)
 ```
 
 O Grafana abre em `localhost:3000` (`admin`/`admin`, só para esta demonstração local) com
@@ -1272,7 +1313,7 @@ biblioteca diferentes não foi verificada e não está sendo afirmada aqui.
 
 Toda configuração é resolvida por variável de ambiente com o prefixo `CREDITO_`
 (ver `.env.example` e `src/credito/config.py`); nenhuma é obrigatória — os defaults são os
-valores embutidos em `Settings`. Os quatro diretórios de artefato têm default **absoluto**,
+valores embutidos em `Settings`. Os diretórios de artefato têm default **absoluto**,
 ancorado na raiz do repositório, e por isso ficam comentados no `.env.example`: um valor
 relativo ali reproduziria o default apenas quando o comando rodasse da raiz. Um teste
 (`test_env_example_reproduz_os_defaults_que_declara`) compara cada valor ativo do arquivo
@@ -1310,7 +1351,8 @@ src/credito/
 │   └── monitoring.py       Orquestração do monitoramento, lote a lote, com registro no MLflow
 ├── monitoring/
 │   ├── proxies.py          Sinais sem rótulo: psi_do_score, confianca_media, taxa_de_aprovacao
-│   └── validacao_de_proxy.py  Correlação de cada proxy contra a degradação real medida
+│   ├── validacao_de_proxy.py  Correlação de cada proxy contra a degradação real medida
+│   └── calibracao_do_alarme.py  Nula, limiar e poder do alarme por tamanho de janela
 ├── tracking/
 │   └── mlflow_client.py    Registra cada execução do monitoramento como um run do MLflow
 ├── api/
@@ -1318,7 +1360,8 @@ src/credito/
 │   ├── schemas.py          Contrato Pydantic de entrada e saída; descarta campo fora de FEATURES
 │   └── metrics.py          Instrumentação Prometheus, cardinalidade controlada por rota
 └── governanca/
-    └── privacidade.py      k-anonimato da Referência e a generalização que o reduz
+    ├── privacidade.py      k-anonimato da Referência e a generalização que o reduz
+    └── decisoes.py         Registro de decisão: append-only, sem identificador, com expurgo
 
 src/credito/data/simulate.py   Os 6 lotes: 3 variáveis de data drift + 1 concept drift
 scripts/demo_contrato.py       Demonstração do bloqueio de ingestão
@@ -1326,7 +1369,10 @@ scripts/verificar_degradacao.py  Guarda da monotonicidade e do contraexperimento
 scripts/validar_proxies.py     Mede quanto cada proxy sem rótulo antecipa a degradação real
 scripts/gerar_trafego.py       Tráfego real contra a API, para os painéis terem o que mostrar
 scripts/auditar_privacidade.py Risco de reidentificação, valor exato contra generalizado
-docker/prometheus/             Config de scrape do Prometheus
+scripts/calibrar_alarme.py     Calibração do alarme e conferência do limiar publicado
+scripts/consultar_decisao.py   Reconstrução de uma decisão para revisão (art. 20)
+scripts/expurgar_decisoes.py   Retenção executável do registro de decisão
+docker/prometheus/             Scrape, regras de alerta e o teste delas (promtool)
 docker/grafana/                Datasource e dashboard provisionados por arquivo
 docs/model_card.md             Uso pretendido, métricas, limitações e riscos
 docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar e o playbook
@@ -1406,10 +1452,10 @@ E as que a camada de monitoramento acrescenta:
 E as que a camada de observabilidade acrescenta — detalhe completo em
 [`docs/monitoring_plan.md`](docs/monitoring_plan.md):
 
-- **O limiar do alarme de produção (`taxa_de_aprovacao`) foi medido sobre lotes mensais de
-  23.584 scores, não sobre a janela de 500 requisições que a API expõe ao vivo.** A
-  granularidade real é mais fina e mais ruidosa; travar o passo médio medido (0,0079) como
-  limiar de alerta na janela de 500 é extrapolação, não medição.
+- **O alarme vê a degradação tarde.** Calibrado e com 1% de falso alarme, ele pega 14,9%
+  das janelas de 2.000 decisões no primeiro mês de drift e 79,5% no terceiro. E uma mudança
+  de mix de clientes move a taxa de aprovação sem degradação nenhuma — ela não distingue
+  os dois.
 - **PSI do score e PSI por feature não são métricas Prometheus ao vivo.** Os dois rodam em
   lote (MLflow); ligar um deles a um `Gauge`/pushgateway é decisão ainda não tomada —
   declarada como pendente nos dois painéis do dashboard que dependeriam disso.
@@ -1421,9 +1467,8 @@ E as que a camada de observabilidade acrescenta — detalhe completo em
 E as que a camada de governança acrescenta — detalhe em
 [`docs/governanca.md`](docs/governanca.md):
 
-- **Não há registro de decisão de crédito.** A API responde e não grava, então uma recusa
-  passada não pode ser reconstruída para a revisão que o art. 20 garante. O esquema e o
-  prazo de retenção estão especificados; o componente não está construído.
+- **O fluxo humano de revisão é do controlador.** O registro e a reconstrução existem; quem
+  revê, em que prazo e como a decisão revista volta ao titular não são código.
 - **O viés etário está medido, não mitigado.** As duas métricas formais estão publicadas e
   as opções de mitigação, avaliadas; nenhuma foi aplicada ao campeão.
 - **Viés por atributo ausente não é mensurável.** Renda e dependentes podem carregar sinal de
@@ -1433,8 +1478,8 @@ E as que a camada de governança acrescenta — detalhe em
 
 ### Continuidade
 
-Sobre esta base, na ordem em que um depende do outro: o **registro de decisão** com
-identificador pseudônimo; a **explicação individual** sobre esse registro; a **mitigação de
+Sobre esta base, na ordem em que um depende do outro: a **explicação individual** sobre o
+registro de decisão, que já guarda as entradas e o modelo de cada decisão; a **mitigação de
 viés** escolhida entre as opções medidas, passando pelo mesmo gate de promoção de qualquer
 candidato; e o **relatório de impacto à proteção de dados** (LGPD, art. 38), que
 `docs/governanca.md` já estrutura.
