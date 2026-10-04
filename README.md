@@ -28,8 +28,8 @@
 | Critério (peso) | O que se pede | Onde está | Como verificar |
 |---|---|---|---|
 | **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
-| **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · `reports/drift_mes_*.html` | `make monitor` |
-| **Observabilidade e logs** (20%) | métricas de saúde e alertas de drift visíveis; rastreamento; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic LOTE=mes_06` · `make calibrar-alarme` · `make mlflow-up` |
+| **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · [relatório HTML do mês 6](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/download/v1.1.0/drift_mes_06.html) | `make monitor` |
+| **Observabilidade e logs** (20%) | logs de execução do pipeline (sucesso e falha, por tarefa, com volume) e do drift centralizados; métricas de saúde, infraestrutura e alertas visíveis; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic LOTE=mes_06` · `make calibrar-alarme` · `make mlflow-up` |
 | **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
 | **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
 | **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
@@ -893,7 +893,11 @@ biblioteca.
 
 ![Sumário de drift do Evidently no mês 6, coluna a coluna](docs/images/drift_evidently_mes_06.png)
 
-*Sumário de `reports/drift_mes_06.html`, gerado pela execução desta seção.*
+*Sumário de `reports/drift_mes_06.html`, gerado pela execução desta seção.* Os seis relatórios
+HTML completos — 4,72 MB cada, por isso fora do git — estão anexados à release `v1.1.0`:
+[mês 6](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/download/v1.1.0/drift_mes_06.html), o de maior drift; os outros cinco, e o
+`monitoramento.json` consolidado, na [mesma release](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/tag/v1.1.0).
+Nenhum deles embute linha individual — medido, ver `docs/governanca.md`.
 
 **E o print mostra uma divergência que vale mais do que o print.** O Evidently declara, no
 mês 6, **"Dataset Drift is NOT detected"** — 2 colunas de 10 em drift, uma fração de 0,2
@@ -1059,17 +1063,40 @@ real, toda requisição estourava o bucket `+Inf` — o histograma era inútil. 
 540 chamadas reais ao campeão: p50 3,515 ms · p95 9,665 ms · p99 13,442 ms. É a mesma
 lição de sempre neste projeto: suíte verde não prova que a coisa sobe.
 
-### Cada execução do monitoramento é um run do MLflow
+### Os logs de execução dos dois pipelines, no MLflow — inclusive quando falham
 
-`make monitor` registra cada execução — parâmetros (semente, janela, limiares), as
-métricas do campeão por lote, PSI por feature em série temporal (`step` = mês) e os três
-proxies sem rótulo, mais os artefatos (HTML do Evidently e o JSON consolidado). Backend
-SQLite local (`mlruns/mlflow.db`, ignorado pelo git) — o MLflow 3.x pôs o backend de
-arquivo em modo de manutenção.
+Cada `make train` e cada `make monitor` é um run do MLflow (experimentos `credito-treino` e
+`credito-monitoramento`; backend SQLite local, `mlruns/mlflow.db`, fora do git — o MLflow 3.x
+pôs o backend de arquivo em modo de manutenção). **O run é aberto no início do pipeline, não
+no fim**: uma falha no meio — um lote reprovado pelo contrato, um piso do gate violado —
+fecha o run `FAILED` com o tipo e a mensagem da falha, em vez de não deixar rastro. Antes,
+um lote reprovado abortava o monitoramento antes de qualquer registro.
 
-![Lista de execuções registradas no MLflow](docs/images/mlflow-runs.png)
+O que cada run guarda (`credito.tracking.execucao`):
 
-![Métricas e artefatos de uma execução, incluindo o PSI por feature em série temporal](docs/images/mlflow-run-detalhe.png)
+- **status de cada tarefa** — ingestão, contrato, treino, avaliação, gate; simulação,
+  predição e detecção de drift — como métrica 1/0, no passo do mês quando a tarefa roda por
+  lote: um lote reprovado deixa o contrato em 0 exatamente no mês dele;
+- **volume processado**: linhas brutas, linhas na Referência, **descarte por motivo** (a
+  transformação), partições, linhas de cada lote, linhas reprovadas pelo contrato;
+- **o desfecho**: `promovido`, `nao_promovido`, `concluido` ou `falha` — e "nada a
+  promover" termina `FINISHED`, não `FAILED`: é decisão, não defeito, a mesma separação do
+  gate de promoção;
+- no treino, as métricas de cada candidato na validação, as do campeão no teste, os
+  parâmetros e o `metrics.json`; no monitoramento, as métricas do campeão e o PSI por
+  feature em série temporal (`step` = mês), os três proxies sem rótulo e os artefatos
+  (HTML do Evidently e o JSON consolidado).
+
+Visto com o dado real: três treinos — promovido, não promovido e um com o piso de AUC-PR
+forçado a 0,99 — e o terceiro aparece `FAILED`, com a causa e o volume da execução:
+
+![Execuções de treino registradas no MLflow, uma com falha](docs/images/mlflow-treino.png)
+
+![O treino que falhou: causa nas tags, tarefa a tarefa e volume por motivo de descarte](docs/images/mlflow-treino-falha.png)
+
+![Execuções do monitoramento](docs/images/mlflow-runs.png)
+
+![Uma execução do monitoramento: tarefas, volume por lote e as métricas do campeão](docs/images/mlflow-run-detalhe.png)
 
 `make mlflow-up` sobe a UI contra o mesmo SQLite que `make monitor` grava.
 
@@ -1080,7 +1107,7 @@ que a raspa a cada 5 s e o Grafana com **datasource e dashboard provisionados po
 arquivo** — nada clicado à mão, os dois sobem já configurados a partir de
 `docker/grafana/provisioning/` e `docker/grafana/dashboards/`.
 
-![Dashboard do Grafana com os seis painéis populados por tráfego real](docs/images/grafana-dashboard.png)
+![Dashboard do Grafana com os oito painéis populados por tráfego real](docs/images/grafana-dashboard.png)
 
 **A ordem dos painéis é deliberada**, a mesma lição da seção anterior aplicada ao
 dashboard: tráfego e taxa de erro primeiro, depois latência, depois os dois alarmes
@@ -1092,6 +1119,11 @@ explicam só 3,1% da degradação real, enquanto o concept drift — invisível 
 
 O painel de PSI por feature é texto, não gráfico: a métrica só existe em lote (MLflow),
 nunca por requisição na API — decisão declarada no próprio painel, não escondida.
+
+Os dois últimos painéis são a **estabilidade da infraestrutura**: o processo da API está de
+pé (o Prometheus consegue raspá-lo), quanto de CPU consome e se a memória residente cresce
+sem parar. Sob as 5.000 decisões da demonstração, a CPU chegou a ~40% de um núcleo e a
+memória ficou estável em ~195 MiB.
 
 ### O alarme, calibrado e visto disparando
 

@@ -197,6 +197,42 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
 - **Quando consultar:** depois que o painel 5 (ou 4) já indicou que algo degradou — nunca
   antes. A ordem de leitura é deliberada.
 
+### 7 e 8. Estabilidade da infraestrutura — o processo está de pé, com folga?
+
+- **Métricas:** `up{job="credito-api"}` (o Prometheus consegue raspar a API),
+  `process_cpu_seconds_total` (CPU, em taxa: fração de um núcleo),
+  `process_resident_memory_bytes` (memória residente) e `process_start_time_seconds` (um
+  reinício aparece como salto). Vêm do coletor de processo do `prometheus-client`,
+  registrado no registro próprio da API.
+- **Medido na demonstração:** sob 5.000 decisões sequenciais, CPU com pico de ~40% de um
+  núcleo e memória estável em ~195 MiB.
+- **Alerta:** `up` em 0 é a API fora — a primeira coisa a olhar em qualquer cenário. Para
+  CPU e memória, sem carga real medida, não há limiar a declarar; o sinal é a forma da
+  curva: memória crescendo sem parar entre reinícios é vazamento.
+
+---
+
+## Logs de execução dos pipelines (MLflow)
+
+O painel acima é a saúde do serviço; a saúde dos **pipelines** de dados mora no MLflow,
+um run por execução de `make train` (experimento `credito-treino`) e de `make monitor`
+(`credito-monitoramento`), aberto no início — uma falha no meio deixa o run `FAILED` com a
+causa, em vez de nenhum rastro (`credito.tracking.execucao`).
+
+| Métrica de saúde do pipeline | Onde | Como ler |
+|---|---|---|
+| **Status da execução** | status do run (`FINISHED`/`FAILED`) e tag `desfecho` | `falha` é defeito; `nao_promovido` é decisão do gate e termina `FINISHED` |
+| **Causa da falha** | tags `falha.tipo` e `falha.mensagem` | `ContratoViolado` aponta o dado; `QualityGateError`, o modelo |
+| **Status de cada tarefa** | métricas `tarefa.<nome>` (1/0), no passo do mês quando por lote | a tarefa que parou é a primeira em 0 |
+| **Volume processado** | `volume.linhas_brutas`, `volume.linhas_referencia`, `volume.linhas_lote` (por mês) | queda brusca de volume é problema de ingestão antes de ser de modelo |
+| **Volume recusado** | `volume.descartes.<motivo>` (limpeza) e `volume.linhas_reprovadas` (contrato) | um motivo de descarte que cresce é o sistema de origem mudando |
+| **Resultado do drift** | `drift.psi.<feature>`, `campeao.*` e `proxy.*` por mês; tag `gate.veredito` | ver painéis 4 a 6 e a seção da causalidade no README |
+| **Alertas de falha ou drift** | Prometheus, série `ALERTS{alertstate="firing"}`, e a página `/alerts` | quantos e quais dos alertas de `alertas.yml` estão disparando agora |
+
+Visto com o dado real: um treino com o piso de AUC-PR forçado a 0,99 aparece `FAILED`, com
+`falha.tipo = QualityGateError`, `tarefa.gate = 0` e o volume da execução completo — ver
+`docs/images/mlflow-treino-falha.png`.
+
 ---
 
 ## Playbook por cenário
@@ -251,6 +287,18 @@ degradação (0,8% / 2,3% / 6,8%, respectivamente)?
    distribuição do score, a causa provável é concept drift — que nenhum PSI de feature
    captura.
 
+
+### E. Um run `FAILED` no MLflow
+
+**Primeira pergunta:** qual é o `falha.tipo`?
+
+1. `ContratoViolado` (ou `ReferenciaInvalida`, no monitoramento): o dado foi recusado na
+   porta. A métrica `tarefa.contrato` em 0 aponta o mês; `volume.linhas_reprovadas`, quantas
+   linhas. A causa está no sistema de origem — nada foi treinado nem monitorado sobre ele.
+2. `QualityGateError`: o candidato violou um piso absoluto. Nada foi publicado; o modelo em
+   produção continua o anterior. Comparar `teste.*` do run com os pisos nos parâmetros.
+3. Qualquer outro tipo é defeito de código: a mensagem está em `falha.mensagem`, e o
+   traceback completo no log da execução.
 ---
 
 ## O que não é monitorado, e por quê
