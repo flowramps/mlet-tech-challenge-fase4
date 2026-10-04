@@ -15,9 +15,11 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-# O grupo `main` é o que a imagem instala com `--only main`. Estes são os diretórios cujo
-# código roda com essa instalação; `tests/` não entra, porque pytest vive no grupo `dev`.
+# Código que roda fora da suíte: `src/` e `scripts/` rodam com `main` + `pipeline` (o que
+# `poetry install` traz); `tests/` não entra, porque pytest vive no grupo `dev`. A imagem
+# instala só `main` e roda só a API — o fecho de imports dela é cobrado à parte, abaixo.
 FONTES_DE_PRODUCAO = ("src", "scripts")
+API = RAIZ / "src" / "credito" / "api"
 
 
 def _versao(caminho: Path, padrao: str) -> str:
@@ -65,6 +67,12 @@ def _dependencias_do_grupo_main() -> set[str]:
     }
 
 
+def _dependencias_do_grupo_pipeline() -> set[str]:
+    pyproject = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
+    grupo = pyproject["tool"]["poetry"]["group"]["pipeline"]["dependencies"]
+    return {_nome_normalizado(nome) for nome in grupo}
+
+
 def _modulos_importados_em_producao() -> set[str]:
     modulos: set[str] = set()
     for diretorio in FONTES_DE_PRODUCAO:
@@ -100,12 +108,24 @@ def test_toda_dependencia_do_grupo_main_e_importada_em_producao():
     assert _dependencias_do_grupo_main() <= fornecidas
 
 
+def test_toda_dependencia_do_grupo_pipeline_e_importada_em_producao():
+    # A mesma disciplina do teste acima, para o grupo que só o pipeline usa: declarar sem
+    # importar é peso e janela de CVE sem uso.
+    importados = _modulos_importados_em_producao()
+    origem = _distribuicao_de_cada_modulo()
+    fornecidas = {
+        distribuicao for modulo in importados for distribuicao in origem.get(modulo, set())
+    }
+
+    assert _dependencias_do_grupo_pipeline() <= fornecidas
+
+
 def test_todo_import_de_producao_tem_dependencia_declarada():
     # A outra direção, que é o mesmo defeito de sinal trocado: `numpy` era importado
     # direto por `adulterate.py` e `evaluate.py` sem estar declarado, chegando de carona
     # pelo pandas e pelo scikit-learn. Funciona até o dia em que uma dessas duas troque de
     # versão principal — e aí quebra num módulo que nunca pediu nada ao numpy.
-    declaradas = _dependencias_do_grupo_main()
+    declaradas = _dependencias_do_grupo_main() | _dependencias_do_grupo_pipeline()
     origem = _distribuicao_de_cada_modulo()
 
     nao_declarados = {
@@ -115,3 +135,72 @@ def test_todo_import_de_producao_tem_dependencia_declarada():
     }
 
     assert nao_declarados == set()
+
+
+def _arquivo_do_modulo(nome: str) -> Path | None:
+    """`credito.a.b` -> o arquivo `src/credito/a/b.py` ou `src/credito/a/b/__init__.py`."""
+    base = RAIZ / "src" / Path(*nome.split("."))
+    for candidato in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidato.exists():
+            return candidato
+    return None
+
+
+def _fecho_de_imports(inicio: list[Path]) -> set[str]:
+    """Módulos de terceiros alcançados a partir de `inicio`, seguindo os imports internos
+    (`credito.*`) arquivo a arquivo — estaticamente, sem importar nada."""
+    pendentes, visitados, terceiros = list(inicio), set(), set()
+    while pendentes:
+        arquivo = pendentes.pop()
+        if arquivo in visitados:
+            continue
+        visitados.add(arquivo)
+        for no in ast.walk(ast.parse(arquivo.read_text(encoding="utf-8"))):
+            nomes: list[str] = []
+            if isinstance(no, ast.Import):
+                nomes = [alias.name for alias in no.names]
+            elif isinstance(no, ast.ImportFrom) and no.level == 0 and no.module:
+                # `from credito.a import b` pode trazer o submódulo `b`, não só um nome.
+                nomes = [no.module] + [f"{no.module}.{alias.name}" for alias in no.names]
+            for nome in nomes:
+                if nome.split(".")[0] == "credito":
+                    if (alvo := _arquivo_do_modulo(nome)) is not None:
+                        pendentes.append(alvo)
+                elif nome.split(".")[0] not in sys.stdlib_module_names:
+                    terceiros.add(nome.split(".")[0])
+    return terceiros
+
+
+def test_a_api_so_alcanca_dependencias_que_a_imagem_instala():
+    # A imagem instala `--only main`. Se algum módulo que a API importa — direta ou
+    # transitivamente, via `credito.*` — passar a importar MLflow, Evidently ou Pandera, o
+    # container sobe e quebra no primeiro import, e só o build da CI perceberia, minutos
+    # depois. Este teste percebe na hora, sem Docker.
+    alcancados = _fecho_de_imports(sorted(API.glob("*.py")))
+    origem = _distribuicao_de_cada_modulo()
+    main = _dependencias_do_grupo_main()
+
+    fora_da_imagem = {modulo for modulo in alcancados if not (origem.get(modulo, set()) & main)}
+
+    assert fora_da_imagem == set()
+    # Sanidade do próprio fecho: um fecho vazio passaria na asserção acima por vacuidade.
+    assert {"fastapi", "prometheus_client", "pydantic"} <= alcancados
+    # O que um fecho estático não vê: `joblib.load` exige `xgboost` e `sklearn` para
+    # desserializar o campeão, sem import nenhum no código. Os dois estão em `main` por
+    # isso, e o smoke test de `/health` no job de build da CI é quem cobre esse caminho.
+
+
+def test_versao_e_uma_so_no_pacote_na_api_e_no_model_card():
+    # Três lugares declaravam versão e divergiam: o pacote dizia 0.1.0 e a API anunciava
+    # 1.0.0 no OpenAPI. A API agora lê do metadado do pacote; o model card é texto, então
+    # este teste é o que o mantém alinhado.
+    from credito.api.main import create_app
+
+    pyproject = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
+    do_pacote = pyproject["project"]["version"]
+    card = (RAIZ / "docs" / "model_card.md").read_text(encoding="utf-8")
+    do_card = re.search(r"\|\s*\*\*Versão\*\*\s*\|\s*([\d.]+)\s*\|", card)
+
+    assert do_card, "linha de versão não encontrada no model card"
+    assert create_app(object(), {}).version == do_pacote
+    assert do_card.group(1) == do_pacote

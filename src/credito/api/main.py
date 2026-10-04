@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 from typing import Any
 
 import pandas as pd
@@ -89,7 +90,7 @@ def create_app(modelo: Any | None = None, metadados: dict[str, Any] | None = Non
             "Serve o modelo campeão de risco de crédito e expõe métricas Prometheus para "
             "monitoramento de degradação sem rótulo."
         ),
-        version="1.0.0",
+        version=version("credito"),
         lifespan=lifespan,
     )
 

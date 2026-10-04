@@ -1,7 +1,7 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
 .PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
-	validar-proxies auditar-privacidade mlflow-up api observabilidade-up observabilidade-down traffic
+	validar-proxies auditar-privacidade reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -42,6 +42,14 @@ validar-proxies:  ## Mede quanto cada proxy sem rótulo antecipa a degradação 
 
 auditar-privacidade: ## Mede o risco de reidentificação da Referência e o efeito da generalização
 	poetry run python scripts/auditar_privacidade.py
+
+reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, proxies, privacidade)
+	$(MAKE) data
+	$(MAKE) train
+	$(MAKE) monitor
+	$(MAKE) verificar-degradacao
+	$(MAKE) validar-proxies
+	$(MAKE) auditar-privacidade
 
 mlflow-up:        ## Sobe a UI do MLflow contra o mesmo SQLite que `make monitor` grava
 	MLFLOW_DISABLE_TELEMETRY=true MLFLOW_DISABLE_AGENT_HINT=1 \

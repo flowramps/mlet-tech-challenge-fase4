@@ -54,7 +54,7 @@ def test_classificar_acima_do_critico_e_critico():
 
 
 def test_relatorio_sem_features_e_rejeitado_na_construcao():
-    # Ruling do revisor: um relatório com zero features não é um estado plausível — é
+    # Decisão de projeto: um relatório com zero features não é um estado plausível — é
     # sinal de detector que travou, foi mal configurado, ou perdeu toda feature no
     # caminho. Devolver ESTAVEL nesse caso (a implementação original, por analogia mal
     # aplicada a `ValidationResult.valido`) deixaria esse bug se disfarçar de "tudo
@@ -165,7 +165,7 @@ def test_driftdefeature_guarda_psi_e_ks_p_valor_por_nome_nao_por_posicao():
 
 
 def test_driftdefeature_rejeita_severidade_que_nao_bate_com_classificar():
-    # A lacuna que o Important 1 do revisor apontou: nada, além desta validação, impede
+    # A lacuna que este teste fecha: nada, além desta validação, impede
     # que `severidade` e `psi_divergencia` se contradigam. 0,01 classifica como ESTAVEL
     # (bem abaixo de psi_atencao); rotulá-lo CRITICO tem que ser rejeitado na construção,
     # não silenciosamente aceito e propagado para `severidade_maxima`.

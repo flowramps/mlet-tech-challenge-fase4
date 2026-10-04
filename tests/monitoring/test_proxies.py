@@ -445,7 +445,7 @@ def test_pacote_monitoring_nao_cita_a_coluna_alvo_em_lugar_nenhum():
     `proxies.py`, só a importação do helper apareceria, e os testes de execução não
     notariam porque essa leitura não teria efeito nenhum sobre o valor devolvido.
     Verificado construindo exatamente esse helper e vendo este teste (na versão de
-    arquivo único) continuar verde — evidência no relatório da task.
+    arquivo único) continuar verde — por isso o guard percorre os imports.
 
     `_fontes_do_pacote` fecha essa lacuna caminhando os imports internos ao pacote; ver
     o docstring dela para o que continua fora do alcance — em particular, uma

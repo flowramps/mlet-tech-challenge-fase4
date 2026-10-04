@@ -10,6 +10,76 @@
 
 ---
 
+## Em uma tela
+
+| | Medido |
+|---|---|
+| **Baseline** | XGBoost com AUC-PR **0,3716** — 5,4× o acaso — e recall da classe positiva **0,6915** |
+| **Contrato** | seis regras; um lote adulterado é bloqueado com a contagem exata de cada defeito |
+| **Degradação silenciosa** | sob seis meses de mudança simulada, o recall cai **45,1%** e o poder discriminativo acima do piso, **59,2%** — sem uma única linha inválida |
+| **De onde ela vem** | concept drift responde por **48,0%** da queda; as duas variáveis de maior PSI, por **3,1%** |
+| **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); o corte convencional de PSI nunca dispararia |
+| **Privacidade** | sem CPF, mas **53,30%** das pessoas são únicas em idade + renda + dependentes; generalizar reduz a exposição a **0,01%** |
+| **Equidade** | duas métricas formais que **discordam**: os 4/5 apontam os jovens, a igualdade de oportunidade aponta os idosos |
+| **Engenharia** | `make reproduzir` regenera todo número deste README; imagem de 1,25 GB sem vulnerabilidade HIGH corrigível; cobertura de 98% com piso na CI |
+
+## Onde está cada exigência
+
+| Critério (peso) | O que se pede | Onde está | Como verificar |
+|---|---|---|---|
+| **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
+| **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · `reports/drift_mes_*.html` | `make monitor` |
+| **Observabilidade e logs** (20%) | métricas de saúde e alertas de drift visíveis; rastreamento; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic` · `make mlflow-up` |
+| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) | `make auditar-privacidade` · `equidade` em `metrics/metrics.json` |
+| **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
+| **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    subgraph T["Treino — make train"]
+        A["Dataset público<br/>(OpenML, md5)"] --> B["Limpeza auditável"]
+        B --> C{"Contrato<br/>6 regras"}
+        C -- inválido --> X["Ingestão<br/>bloqueada"]
+        C -- válido --> D["2 candidatos"] --> E{"Gate de<br/>promoção"}
+        E -- promove --> F[("Campeão<br/>model.joblib")]
+    end
+    subgraph M["Monitoramento — make monitor"]
+        F --> G["6 lotes de produção<br/>simulados"] --> H["PSI e KS próprios<br/>+ Evidently"] --> J{"Gate de drift"}
+        G --> K["Degradação real +<br/>atribuição causal"]
+        J --> L[("MLflow")]
+        K --> L
+    end
+    subgraph P["Produção — make observabilidade-up"]
+        F --> N["API /score"] --> O["/metrics"] --> Q["Prometheus"] --> R["Grafana"]
+    end
+    subgraph G4["Governança"]
+        F --> S["Equidade:<br/>4/5 e oportunidade"]
+        B --> U["Risco de<br/>reidentificação"]
+    end
+```
+
+O contrato bloqueia dado **inválido**; o gate de drift alerta sobre dado **deslocado**, que
+continua válido — as duas camadas respondem perguntas diferentes, e é essa separação que o
+resto do documento sustenta com número.
+
+## Índice
+
+1. [O problema](#o-problema)
+2. [Dados](#dados)
+3. [Contrato de dados](#contrato-de-dados)
+4. [Modelo baseline](#modelo-baseline)
+5. [Gate de qualidade](#gate-de-qualidade)
+6. [Monitoramento de drift](#monitoramento-de-drift)
+7. [Observabilidade em produção](#observabilidade-em-produção)
+8. [Governança e proteção de dados](#governança-e-proteção-de-dados)
+9. [Como executar](#como-executar)
+10. [Estrutura do projeto](#estrutura-do-projeto)
+11. [Roadmap](#roadmap)
+
+---
+
 ## O problema
 
 Uma fintech tem um modelo de *credit scoring* em produção e suspeita que ele vem
@@ -24,23 +94,30 @@ Duas causas se confundem quando não há instrumentação:
 - **A população mudou.** O dado continua válido, mas não é mais o dado sobre o qual o
   modelo aprendeu.
 
-São problemas diferentes e exigem respostas diferentes, e o repositório os separa em duas
-camadas. A primeira estabelece o Dataset de Referência, o contrato que barra dado inválido
-antes de qualquer coisa acontecer, o baseline e o gate de promoção. A segunda simula a
-passagem do tempo sobre a população, mede o deslocamento com PSI e KS, gera o relatório do
-Evidently e — a parte que muda a conclusão — mede o que o deslocamento custou ao modelo
-publicado.
+São problemas diferentes e exigem respostas diferentes, e o repositório os separa em
+camadas, cada uma respondendo uma pergunta. A primeira estabelece o Dataset de Referência,
+o contrato que barra dado inválido antes de qualquer coisa acontecer, o baseline e o gate
+de promoção. A segunda simula a passagem do tempo sobre a população, mede o deslocamento
+com PSI e KS, gera o relatório do Evidently e — a parte que muda a conclusão — mede o que o
+deslocamento custou ao modelo publicado. A terceira torna isso operável em produção, onde
+não há rótulo. A quarta pergunta se a decisão é lícita e justa.
 
 A distinção que o código sustenta: **contrato responde "este dado é válido?"** e é falha
 dura quando a resposta é não. **Drift responde "este dado é o mesmo de antes?"** — e um
 lote com drift passa no contrato, porque dado deslocado continua sendo dado válido. Os seis
-lotes simulados desta etapa passam no contrato, todos, com zero violações: é a demonstração
+lotes simulados passam no contrato, todos, com zero violações: é a demonstração
 da distinção, não uma coincidência de calibração.
 
 E há uma terceira pergunta, que nenhuma das duas responde: **"e daí?"** — quanto o
 deslocamento custa ao modelo que está servindo. PSI e KS são diagnóstico; a degradação
 medida é o alarme. A seção de monitoramento mostra, com a decomposição causal desta
 execução, que as duas respostas apontam para variáveis diferentes.
+
+Mais duas perguntas fecham o problema. **"E sem rótulo?"** — em produção ninguém sabe quem
+inadimpliu até meses depois da decisão, então a degradação medida não serve de alarme ao
+vivo; a seção de observabilidade mede qual sinal sem rótulo a antecipa. **"É lícito e
+justo?"** — a seção de governança fixa a base legal, mede quanto o dado permite reidentificar
+alguém e mede a equidade da decisão por faixa etária, com duas métricas que discordam.
 
 ---
 
@@ -421,8 +498,9 @@ de adivinhando.
 
 `make monitor` roda a camada inteira: seis lotes mensais simulados, cada um passando por
 contrato → predição do campeão → PSI e KS próprios → relatório HTML do Evidently, e um gate
-que consolida os seis numa decisão. A execução que produziu todos os números desta seção
-levou **17,7 s** de relógio nesta máquina.
+que consolida os seis numa decisão. A execução que produz todos os números desta seção
+leva **19,1 s** de relógio nesta máquina (mediana de três execuções: 18,8 / 19,1 / 20,9 s,
+já incluindo o registro no MLflow).
 
 **A ordem desta seção é deliberada**, e é a mesma ordem em que `reports/monitoramento.json`
 grava as coisas: a consequência primeiro, a tabela de PSI depois. Quem lê a tabela de PSI
@@ -1096,20 +1174,38 @@ responde sem gravar, o que é bom para a minimização e deixa o direito de revi
 
 ## Como executar
 
-Pré-requisitos: **Python 3.12** e **Poetry 2.x** (validado com Python 3.12.13 e Poetry
-2.3.2). Nenhuma credencial é necessária.
+| Pré-requisito | Para quê | Validado com |
+|---|---|---|
+| **Python 3.12** | tudo | 3.12.13 |
+| **Poetry 2.x** | dependências e ambiente virtual | 2.3.2 |
+| **GNU make** | os alvos abaixo | 4.3 |
+| **Docker** com Compose v2 | só a pilha de observabilidade (API + Prometheus + Grafana) | 29.5 / v5.1 |
+
+Nenhuma credencial é necessária: o dataset vem de URL pública, com md5 verificado.
+
+**O caminho curto** — do clone a todo número publicado neste README:
 
 ```bash
-git clone <url-do-repositorio>
-cd <diretorio-do-repositorio>
+git clone https://github.com/flowramps/mlet-tech-challenge-fase4.git
+cd mlet-tech-challenge-fase4
+make install      # dependências e hooks de pre-commit
+make test         # a suíte, antes de qualquer outra coisa
+make reproduzir   # dado → treino → drift → degradação → proxies → privacidade
+```
 
-make install        # instala dependências e os hooks de pre-commit
+Verificado num clone limpo: a suíte passa antes de qualquer outro alvo, e `make reproduzir`
+termina em **58 s** nesta máquina, com o campeão byte a byte idêntico ao publicado (md5
+`567d4533bf2f46c425d22e59adcd8aac`) e todos os números deste README regenerados.
+
+**Passo a passo**, para entender o que cada etapa produz:
+
+```bash
 make data           # baixa o dataset público (7,2 MB) e verifica o md5
 make train          # treina os candidatos, avalia e promove o campeão
 make monitor        # simula a produção, mede o drift e gera os relatórios HTML
 ```
 
-Os quatro comandos na ordem acima levam um clone limpo até o veredito de drift. `make
+Os três comandos na ordem acima levam um clone limpo até o veredito de drift. `make
 monitor` exige um campeão publicado (`models/model.joblib`), ou seja, `make train` antes —
 ele monitora o modelo que está servindo, não treina nenhum.
 
@@ -1129,7 +1225,7 @@ E `make monitor` deixa em `reports/`:
   PSI e KS por feature nas duas implementações, a decomposição causal de cada mês e o
   veredito do gate.
 
-`reports/` é ignorado pelo git (28 MB de HTML por execução, reproduzíveis em 17,7 s); o
+`reports/` é ignorado pelo git (28 MB de HTML por execução, reproduzíveis em cerca de 19 s); o
 que vai para o repositório é o print em `docs/images/`.
 
 Demais alvos:
@@ -1157,7 +1253,11 @@ O Grafana abre em `localhost:3000` (`admin`/`admin`, só para esta demonstraçã
 o dashboard já provisionado; o MLflow em `localhost:5000`; a API em `localhost:8000`.
 
 Rodar `make train` uma segunda vez **não falha**: o retreino reproduz o incumbente, o gate
-recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto.
+recusa a promoção e o processo termina com saída 0. Esse é o comportamento correto — e tem
+uma consequência que vale saber: como não há promoção, `metrics/metrics.json` **não é
+regravado**. Para regenerá-lo depois de mudar o código de avaliação, apague
+`models/model.joblib` antes de treinar; com a semente fixa, o campeão sai byte a byte
+idêntico (mesmo md5) e as métricas são gravadas de novo.
 
 Este percurso foi executado em um clone limpo, e não apenas descrito: partindo de um
 `git clone` novo, `make install && make data && make train && make monitor` terminou com
@@ -1290,7 +1390,7 @@ E as que a camada de monitoramento acrescenta:
   anos" só é observável dois anos depois —, e é justamente esse atraso que torna a
   degradação silenciosa um problema. Nada aqui modela essa defasagem.
 - **A nula empírica do PSI está medida e não está sendo usada para decidir.** A severidade
-  continua saindo da convenção 0,10 / 0,25, que a própria medição mostra ser cerca de 60
+  continua saindo da convenção 0,10 / 0,25, que a própria medição mostra ser cerca de 62
   vezes mais folgada que o p95 do acaso. A decisão de manter a convenção é deliberada e
   está argumentada, mas um limiar intermediário — informado pela nula e mais apertado que a
   convenção — não foi calibrado.

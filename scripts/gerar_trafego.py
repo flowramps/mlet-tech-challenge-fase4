@@ -1,4 +1,4 @@
-"""Gera tráfego real contra a API de scoring (Task 5) para que os painéis do Grafana
+"""Gera tráfego real contra a API de scoring (`credito.api`) para que os painéis do Grafana
 tenham o que mostrar — sem tráfego, o painel de taxa de erro e os de latência saem vazios.
 
 Roda com `make traffic`, contra `docker compose up -d` já de pé. Alterna requisições

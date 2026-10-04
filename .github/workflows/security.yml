@@ -1,0 +1,68 @@
+# Scan de vulnerabilidades da imagem de inferência, com Trivy.
+#
+# Medido localmente ao criar este workflow: zero vulnerabilidades HIGH/CRITICAL com correção
+# publicada. Antes, eram cinco — quatro dentro das cópias de urllib3, msgpack e setuptools
+# embutidas no pip (removido da imagem final) e uma na libpcre2 do Debian (resolvida com as
+# atualizações de segurança do sistema no Dockerfile).
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Uma imagem sem alteração fica insegura sozinha: CVEs novos são publicados contra
+  # dependências que já estão lá. O agendamento semanal cobre esse caso.
+  schedule:
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "2.3.2"
+
+jobs:
+  image-scan:
+    name: Scan da imagem (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Instalar Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Instalar dependências
+        run: poetry install --no-interaction
+
+      - name: Treinar o modelo
+        run: poetry run python -m credito.pipeline.training
+
+      - name: Construir a imagem
+        run: docker build -t credito-api:scan .
+
+      # O scan reporta sem bloquear o merge. A imagem base python:3.12-slim carrega CVEs de
+      # sistema que nem sempre têm correção publicada, e travar o merge nisso pararia o
+      # projeto por algo fora do nosso controle. `ignore-unfixed` já filtra o que não tem
+      # remediação; o relatório fica no log para decisão consciente.
+      #
+      # As tags da action têm prefixo `v` — `@0.28.0` não existe, `@v0.36.0` existe.
+      - name: Escanear vulnerabilidades
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: credito-api:scan
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
