@@ -37,6 +37,14 @@ jobs:
       - name: Verificar formatação
         run: ruff format --check .
 
+      # As regras de alerta têm teste próprio: uma regra nunca vista disparando — nem vista
+      # NÃO disparando — é decoração. Mesma versão do Prometheus do docker-compose.yml.
+      - name: Testar as regras de alerta do Prometheus
+        run: >-
+          docker run --rm --entrypoint promtool
+          -v "$PWD/docker/prometheus:/etc/prometheus:ro" -w /etc/prometheus
+          prom/prometheus:v3.15.0 test rules alertas_test.yml
+
   test:
     name: Test (pytest)
     runs-on: ubuntu-latest

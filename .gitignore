@@ -6,7 +6,6 @@ __pycache__/
 .coverage
 htmlcov/
 .env
-.claude/
 
 # Artefatos reproduzíveis por `make train` — não versionados.
 # A barra inicial ancora o padrão na raiz do repositório: sem ela, `data/` também
@@ -15,6 +14,7 @@ htmlcov/
 /models/
 /metrics/
 /mlruns/
+/decisoes/
 
 # Relatórios gerados (Evidently, Great Expectations, profiling). Reproduzíveis por script;
 # o que vai para o repo é o print ou o relatório escolhido, em docs/images/.

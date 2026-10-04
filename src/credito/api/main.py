@@ -9,17 +9,25 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from importlib.metadata import version
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from prometheus_client import CollectorRegistry
 
 from credito.api.metrics import instrument
 from credito.api.schemas import HealthResponse, ScoreRequest, ScoreResponse
 from credito.config import get_settings
+from credito.governanca.decisoes import (
+    Decisao,
+    RegistroDeDecisoes,
+    RegistroJsonl,
+    sha256_do_arquivo,
+)
 from credito.model.train import carregar_modelo
 from credito.monitoring.proxies import LIMIAR_PADRAO
 from credito.schema import FEATURES
@@ -50,25 +58,36 @@ def _frame_de_registro(registro: dict[str, float]) -> pd.DataFrame:
     return pd.DataFrame([registro], columns=list(FEATURES))
 
 
-def create_app(modelo: Any | None = None, metadados: dict[str, Any] | None = None) -> FastAPI:
+def create_app(
+    modelo: Any | None = None,
+    metadados: dict[str, Any] | None = None,
+    *,
+    registro: RegistroDeDecisoes | None = None,
+) -> FastAPI:
     """Monta a aplicação.
 
     Recebendo `modelo`/`metadados` prontos, a API fica testável sem tocar disco nem
     treinar nada; sem eles, o campeão publicado é carregado uma única vez no startup, via
-    `credito.model.train.carregar_modelo`, e não a cada requisição.
+    `credito.model.train.carregar_modelo`, e não a cada requisição. Sem `registro`, as
+    decisões vão para o arquivo de `Settings.decisoes_path`.
     """
     _configure_logging()
+    registro_de_decisoes = registro or RegistroJsonl(get_settings().decisoes_path)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         if modelo is not None:
             application.state.modelo = modelo
             application.state.metadados = metadados or {}
+            application.state.modelo_sha256 = str(
+                application.state.metadados.get("modelo_sha256", "desconhecido")
+            )
         else:
             settings = get_settings()
             modelo_carregado, metadados_carregados = carregar_modelo(settings.model_path)
             application.state.modelo = modelo_carregado
             application.state.metadados = metadados_carregados
+            application.state.modelo_sha256 = sha256_do_arquivo(settings.model_path)
 
         candidato = application.state.metadados.get("candidato", "desconhecido")
         # O mesmo registro que alimenta /metrics: no Grafana dá para saber qual modelo
@@ -135,9 +154,34 @@ def create_app(modelo: Any | None = None, metadados: dict[str, Any] | None = Non
         # `credito.monitoring.proxies.taxa_de_aprovacao` de verdade.
         aprovado = probabilidade < LIMIAR_PADRAO
 
+        # Sem registro, sem decisão: a decisão só é emitida depois de gravada. Uma falha de
+        # disco vira 503, nunca uma aprovação ou recusa que ninguém conseguiria reconstruir
+        # numa revisão (LGPD, art. 20) — o mesmo princípio do histórico de treino, gravado
+        # antes de qualquer desfecho.
+        decisao = Decisao(
+            id_decisao=str(uuid.uuid4()),
+            registrada_em=datetime.now(UTC).isoformat(),
+            features=payload.para_registro(),
+            probabilidade_inadimplencia=probabilidade,
+            aprovado=aprovado,
+            limiar=LIMIAR_PADRAO,
+            candidato=candidato,
+            modelo_sha256=request.app.state.modelo_sha256,
+        )
+        try:
+            registro_de_decisoes.registrar(decisao)
+        except OSError as erro:
+            logger.error("decisão não registrada, nenhuma decisão emitida: %s", erro)
+            raise HTTPException(
+                status_code=503,
+                detail="decisão não registrada; nenhuma decisão foi emitida",
+            ) from erro
+
+        # Só a decisão emitida entra no alarme ao vivo.
         request.app.state.metrics.registrar_score(probabilidade)
 
         return ScoreResponse(
+            id_decisao=decisao.id_decisao,
             probabilidade_inadimplencia=probabilidade,
             aprovado=aprovado,
             limiar=LIMIAR_PADRAO,

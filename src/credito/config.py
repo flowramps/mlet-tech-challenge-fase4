@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     metrics_dir: Path = PROJECT_ROOT / "metrics"
     reports_dir: Path = PROJECT_ROOT / "reports"
     mlruns_dir: Path = PROJECT_ROOT / "mlruns"
+    # Registro de decisão de crédito: guarda dado pessoal, por isso fora do git e com
+    # retenção executável (ver `credito.governanca.decisoes`).
+    decisoes_dir: Path = PROJECT_ROOT / "decisoes"
 
     # Nome do experimento MLflow que agrupa os runs do monitoramento — conjunto fechado de
     # um elemento só, mas nomeado em vez de literal espalhado pelo chamador, pela mesma
@@ -97,6 +100,10 @@ class Settings(BaseSettings):
     @property
     def model_path(self) -> Path:
         return self.models_dir / self.model_filename
+
+    @property
+    def decisoes_path(self) -> Path:
+        return self.decisoes_dir / "decisoes.jsonl"
 
     @property
     def mlflow_tracking_uri(self) -> str:

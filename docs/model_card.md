@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Identificador** | `credito` — baseline de risco de inadimplência |
-| **Versão** | 0.5.0 |
+| **Versão** | 1.0.0 |
 | **Tipo** | Classificador binário de probabilidade |
 | **Arquitetura publicada** | `XGBClassifier` (300 árvores, profundidade 5, `scale_pos_weight` pela razão de classes), encapsulado em `sklearn.pipeline.Pipeline` |
 | **Artefato** | `models/model.joblib` — modelo e metadados no mesmo pacote |
@@ -266,7 +266,7 @@ controlável. Ver as limitações abaixo.
 | **Falso positivo em escala** | Precisão de 0,2350: cerca de 3 em cada 4 recusas atingem bons pagadores. Perda de receita e de relacionamento | Recall privilegiado por decisão explícita e documentada de custo | Curva de custo para escolher o limiar |
 | **Viés etário** | Recusa varia 4,7× entre faixas contra 2,7× de variação no risco real. Severidade desproporcional com jovens | Medido e publicado a cada execução em `metrics.json`, com as duas métricas formais: razão 4/5 (18-25 e 26-40 abaixo de 0,80) e igualdade de oportunidade (61+ com o pior recall) | Mitigação escolhida entre as opções de `docs/governanca.md`, medida pelas duas métricas antes e depois |
 | **Exclusão de quem não declara renda** | 19,82% do bruto. Hoje bloqueado no contrato, não pontuado | Bloqueio explícito e auditável, em vez de pontuação sobre dado inventado | Política de imputação ou modelo dedicado |
-| **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a decomposição causal, com veredito consolidado; a API de scoring expõe `taxa_de_aprovacao` ao vivo (Prometheus/Grafana) — o proxy sem rótulo que mais se moveu por mês de degradação real nesta simulação (ver `docs/monitoring_plan.md`) | Medição sobre lote de produção real, com a defasagem de rótulo modelada; recalibrar o limiar do alarme para a janela de 500 requisições que a API de fato expõe |
+| **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a decomposição causal, com veredito consolidado; a API de scoring expõe `taxa_de_aprovacao` ao vivo, com uma regra de alerta no Prometheus calibrada por medição (limiar 0,7755 numa janela de 2.000 decisões, 1% de falso alarme) e vista disparando com tráfego do mês 6 (ver `docs/monitoring_plan.md`) | Medição sobre lote de produção real, com a defasagem de rótulo modelada; um alarme que veja a degradação precoce: com a janela de 2.000, o alerta calibrado pega 14,9% das janelas no mês 1 e 79,5% no mês 3 |
 | **Alarmar na variável errada** | PSI aponta onde a distribuição se moveu, não quanto custou. As duas variáveis de PSI mais alto explicam 3,1% da degradação medida | O relatório consolidado publica a decomposição causal **antes** da tabela de PSI, e o resumo do gate carrega a ressalva embutida | Detecção de concept drift sem rótulo |
 | **Dado quebrado na ingestão** | Nulo, sentinela, duplicata, valor implausível | Contrato de 6 regras bloqueando antes do treino e da inferência | Aplicação do mesmo contrato no endpoint de serviço |
 | **Variável correlacionada com atributo protegido** | Renda e número de dependentes podem carregar sinal de gênero, raça ou região não observados | Nenhuma | Auditoria de *proxy* para atributos protegidos não presentes no dado |
@@ -300,10 +300,11 @@ Consequências para este modelo:
    contabiliza cada descarte por motivo, o histórico de treinos é *append-only* e o recorte
    etário e as métricas de equidade são publicados a cada execução.
 
-O que já existe: dado rastreável, decisão de **treino** registrada, métrica por grupo
-medida. O que ainda não existe é o registro da decisão de **crédito**: a API responde e não
-grava nada, então uma recusa passada não pode ser reconstruída para revisão. O esquema
-desse registro e o prazo de retenção estão especificados em `docs/governanca.md`.
+O que já existe: dado rastreável; decisão de **treino** registrada; métrica por grupo
+medida; e, desde a versão 1.0.0, cada decisão de **crédito** registrada antes de ser emitida
+— sem identificador, com o sha256 do modelo que a tomou — e reconstruível por
+`make consultar-decisao`, que repontua e confere que o resultado é idêntico. Ver
+`docs/governanca.md`, seções 3 e 6.
 
 ---
 

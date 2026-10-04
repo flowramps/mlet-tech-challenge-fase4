@@ -1,7 +1,7 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
 .PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
-	validar-proxies auditar-privacidade reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
+	validar-proxies auditar-privacidade calibrar-alarme consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -43,12 +43,22 @@ validar-proxies:  ## Mede quanto cada proxy sem rótulo antecipa a degradação 
 auditar-privacidade: ## Mede o risco de reidentificação da Referência e o efeito da generalização
 	poetry run python scripts/auditar_privacidade.py
 
-reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, proxies, privacidade)
+calibrar-alarme:  ## Mede o limiar e o poder do alarme ao vivo; falha se o limiar publicado divergir
+	poetry run python scripts/calibrar_alarme.py
+
+consultar-decisao: ## Reconstrói uma decisão para revisão: make consultar-decisao ID=<id_decisao>
+	poetry run python scripts/consultar_decisao.py --id $(ID)
+
+expurgar-decisoes: ## Remove do registro as decisões que passaram do prazo de retenção
+	poetry run python scripts/expurgar_decisoes.py
+
+reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, alarme, privacidade)
 	$(MAKE) data
 	$(MAKE) train
 	$(MAKE) monitor
 	$(MAKE) verificar-degradacao
 	$(MAKE) validar-proxies
+	$(MAKE) calibrar-alarme
 	$(MAKE) auditar-privacidade
 
 mlflow-up:        ## Sobe a UI do MLflow contra o mesmo SQLite que `make monitor` grava
@@ -64,5 +74,5 @@ observabilidade-up: ## Sobe a pilha completa (API + Prometheus + Grafana) via Do
 observabilidade-down: ## Derruba a pilha subida por `make observabilidade-up`
 	docker compose down
 
-traffic:          ## Gera tráfego real contra a API para os painéis terem o que mostrar
-	poetry run python scripts/gerar_trafego.py
+traffic:          ## Gera tráfego real contra a API (LOTE=mes_06 envia linhas com drift, para o alerta disparar)
+	poetry run python scripts/gerar_trafego.py $(if $(LOTE),--lote $(LOTE))
