@@ -223,3 +223,17 @@ def test_amostras_na_janela_crescem_ate_o_tamanho_da_janela_e_param(client):
 
 def test_amostras_comecam_em_zero_antes_de_qualquer_decisao(client):
     assert "credito_taxa_de_aprovacao_amostras 0.0" in client.get("/metrics").text
+
+
+def test_metrics_expoe_a_saude_do_processo(client):
+    # Estabilidade da infraestrutura: CPU, memória e reinícios do processo da API. O
+    # coletor padrão do prometheus-client só vive no registro global, que este projeto não
+    # usa (ver `instrument`) — sem registrá-lo no registro próprio, nada disto aparecia.
+    corpo = client.get("/metrics").text
+
+    for serie in (
+        "process_cpu_seconds_total",
+        "process_resident_memory_bytes",
+        "process_start_time_seconds",
+    ):
+        assert f"\n{serie} " in corpo, serie

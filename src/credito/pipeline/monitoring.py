@@ -71,7 +71,12 @@ from credito.model.evaluate import avaliar
 from credito.model.train import carregar_modelo
 from credito.monitoring.proxies import sinais_do_lote
 from credito.schema import FEATURES
-from credito.tracking.mlflow_client import parametros_da_execucao, registrar_execucao
+from credito.tracking.execucao import Execucao, execucao_rastreada
+from credito.tracking.mlflow_client import (
+    parametros_da_execucao,
+    passo_do_lote,
+    registrar_no_run_ativo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -274,16 +279,41 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
     (ver o docstring do módulo).
     """
     settings = get_settings()
+    # O run do MLflow abre aqui, antes de qualquer tarefa: um lote reprovado no meio deixa
+    # o run `FAILED` com a causa e o mês, em vez de nenhum rastro (`credito.tracking.execucao`).
+    with execucao_rastreada(
+        tracking_uri=settings.mlflow_tracking_uri,
+        experimento=settings.mlflow_experimento,
+        artifact_location=settings.mlflow_artifact_location,
+        pipeline="monitoramento",
+    ) as execucao:
+        resultado = _executar(settings, execucao, meses=meses, seed=seed)
+        execucao.concluir("concluido")
+        return resultado
+
+
+def _executar(settings: Any, execucao: Execucao, *, meses: int, seed: int) -> dict[str, Any]:
     validador = construir_validador()
     detector = construir_detector()
 
-    referencia, _ = limpar(ler_arff(settings.dataset_path))
+    bruto = ler_arff(settings.dataset_path)
+    referencia, _ = limpar(bruto)
+    execucao.tarefa(
+        "ingestao", volume={"linhas_brutas": len(bruto), "linhas_referencia": len(referencia)}
+    )
     # A Referência precisa passar no próprio contrato antes de qualquer coisa — o mesmo
     # bloqueio que `pipeline.training.executar_pipeline` já aplica. Reaproveita a mensagem
     # que `erguer()` já monta (nunca duplica esse formato) e só troca o TIPO da exceção,
     # para que `main()` consiga apontar o arquivo real como causa, não o gerador.
+    verificacao = validador.validar(referencia[list(FEATURES)])
+    execucao.tarefa(
+        "contrato",
+        sucesso=verificacao.valido,
+        passo=0,
+        volume={"linhas_reprovadas": verificacao.linhas_reprovadas},
+    )
     try:
-        validador.validar(referencia[list(FEATURES)]).erguer()
+        verificacao.erguer()
     except ContratoViolado as erro:
         raise ReferenciaInvalida(str(erro)) from erro
 
@@ -298,6 +328,7 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
     modelo, metadados = carregar_modelo(settings.model_path)
 
     lotes = simular_producao(amostra, meses=meses, seed=seed)
+    execucao.tarefa("simulacao", volume={"linhas_amostra": len(amostra)})
     nomes_dos_lotes = [f"mes_{mes:02d}" for mes in range(1, meses + 1)]
 
     relatorios_proprios: list[DriftReport] = []
@@ -311,12 +342,22 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
         # nenhum PSI/KS e nenhum HTML são calculados sobre dado que o próprio contrato de
         # ingestão rejeitaria (drift não é invalidez; isto não é um lote com drift, é um
         # defeito do gerador).
-        validador.validar(lote[list(FEATURES)]).erguer()
+        mes = passo_do_lote(nome)
+        verificacao = validador.validar(lote[list(FEATURES)])
+        execucao.tarefa(
+            "contrato",
+            sucesso=verificacao.valido,
+            passo=mes,
+            volume={"linhas_lote": len(lote), "linhas_reprovadas": verificacao.linhas_reprovadas},
+        )
+        verificacao.erguer()
 
         metricas_do_campeao = avaliar(modelo, lote)
+        execucao.tarefa("predicao", passo=mes)
         relatorio_proprio = _relatorio_proprio(nome, amostra, lote)
         relatorios_proprios.append(relatorio_proprio)
         relatorio_evidently = detector.detectar(amostra, lote, lote=nome)
+        execucao.tarefa("deteccao_de_drift", passo=mes)
         # `referencia=amostra`: os sinais sem rótulo (`credito.monitoring.proxies`) usam a
         # mesma partição de teste que o resto desta orquestração já usa como linha de base —
         # nunca uma segunda Referência calculada à parte.
@@ -331,6 +372,7 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
         }
 
     gate = avaliar_gate(relatorios_proprios)
+    execucao.tarefa("gate")
 
     # A degradação real por lote já foi calculada dentro do laço acima (`metricas_do_
     # campeao`, a mesma chamada a `avaliar` que `credito.drift.calibration.
@@ -367,17 +409,15 @@ def executar_monitoramento(*, meses: int = MESES, seed: int) -> dict[str, Any]:
     artefatos = [dados["relatorio_html"] for dados in relatorio_por_lote.values()]
     artefatos.append(caminho_consolidado)
 
-    resultado["mlflow_run_id"] = registrar_execucao(
-        tracking_uri=settings.mlflow_tracking_uri,
-        experimento=settings.mlflow_experimento,
+    registrar_no_run_ativo(
         parametros=parametros_da_execucao(settings, seed=seed, meses=meses),
         metricas_do_campeao_por_lote=degradacao,
         drift_por_lote=relatorios_proprios,
         proxies_por_lote=proxies_por_lote,
         gate=gate,
         artefatos=artefatos,
-        artifact_location=settings.mlflow_artifact_location,
     )
+    resultado["mlflow_run_id"] = execucao.run_id
 
     return resultado
 

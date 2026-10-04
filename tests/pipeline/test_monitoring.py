@@ -469,3 +469,57 @@ def test_narrativa_relata_degradacao_nao_mensuravel_quando_efeito_conjunto_e_zer
 
     assert "não mensurável" in narrativa
     assert "não tem canal isolado" not in narrativa
+
+
+def test_lote_reprovado_deixa_run_failed_com_a_tarefa_e_o_mes_que_pararam(ambiente, monkeypatch):
+    """Antes, um lote reprovado pelo contrato abortava o monitoramento antes de qualquer
+    registro: a falha só existia no stdout. Agora o run é aberto no início e fica `FAILED`,
+    com o contrato em 0 exatamente no mês que reprovou e os anteriores registrados."""
+    from credito.config import get_settings
+
+    class _ReprovaOSegundoLote:
+        def __init__(self):
+            self.chamadas = 0
+
+        def validar(self, frame):
+            self.chamadas += 1  # 1 = Referência, 2 = mes_01, 3 = mes_02
+            if self.chamadas == 3:
+                return ValidationResult(
+                    total=len(frame),
+                    violacoes=(Violacao(regra="sem_duplicatas", coluna="*", linhas=4),),
+                )
+            return ValidationResult(total=len(frame), violacoes=())
+
+    monkeypatch.setattr(
+        "credito.pipeline.monitoring.construir_validador", lambda: _ReprovaOSegundoLote()
+    )
+    with pytest.raises(ContratoViolado):
+        executar_monitoramento(meses=6, seed=123)
+
+    settings = get_settings()
+    cliente = MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
+    experimento = cliente.get_experiment_by_name(settings.mlflow_experimento)
+    (run,) = cliente.search_runs([experimento.experiment_id])
+    assert run.info.status == "FAILED"
+    assert run.data.tags["falha.tipo"] == "ContratoViolado"
+    contrato = cliente.get_metric_history(run.info.run_id, "tarefa.contrato")
+    # passo 0 = a Referência; 1 = mes_01 aprovado; 2 = mes_02 reprovado — e nada depois.
+    assert [(p.step, p.value) for p in contrato] == [(0, 1.0), (1, 1.0), (2, 0.0)]
+    reprovadas = cliente.get_metric_history(run.info.run_id, "volume.linhas_reprovadas")
+    assert (2, 4.0) in [(p.step, p.value) for p in reprovadas]
+
+
+def test_monitoramento_registra_volume_por_lote_e_desfecho(ambiente):
+    from credito.config import get_settings
+
+    resultado = executar_monitoramento(meses=6, seed=123)
+
+    cliente = MlflowClient(tracking_uri=get_settings().mlflow_tracking_uri)
+    run = cliente.get_run(resultado["mlflow_run_id"])
+    assert run.info.status == "FINISHED"
+    assert run.data.tags["pipeline"] == "monitoramento"
+    assert run.data.tags["desfecho"] == "concluido"
+    volume = cliente.get_metric_history(run.info.run_id, "volume.linhas_lote")
+    assert [p.step for p in volume] == [1, 2, 3, 4, 5, 6]
+    for tarefa in ("ingestao", "simulacao", "predicao", "deteccao_de_drift", "gate"):
+        assert f"tarefa.{tarefa}" in run.data.metrics, tarefa

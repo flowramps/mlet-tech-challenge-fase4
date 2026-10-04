@@ -172,7 +172,7 @@ def _validar_proxies(proxies_por_lote: Mapping[str, Mapping[str, float]]) -> Non
                 )
 
 
-def _preparar_experimento(nome: str, artifact_location: str | None) -> None:
+def preparar_experimento(nome: str, artifact_location: str | None) -> None:
     """Cria o experimento com `artifact_location` explícito na primeira vez que `nome` é
     visto; reusa o existente (e o `artifact_location` já fixado nele) nas vezes
     seguintes — o MLflow não permite trocar o `artifact_location` de um experimento já
@@ -211,40 +211,65 @@ def registrar_execucao(
     _validar_proxies(proxies_por_lote)
 
     mlflow.set_tracking_uri(tracking_uri)
-    _preparar_experimento(experimento, artifact_location)
+    preparar_experimento(experimento, artifact_location)
 
     with mlflow.start_run(run_name=nome_da_execucao) as run:
-        for nome, valor in parametros.items():
-            mlflow.log_param(nome, valor)
-        # O alfa de correção vem do próprio `gate`, nunca repetido à mão pelo chamador —
-        # duas fontes para o mesmo número divergiriam silenciosamente no dia em que
-        # alguém mudasse uma sem lembrar da outra.
-        mlflow.log_param("gate.alfa", gate.alfa)
-
-        for lote, metricas in metricas_do_campeao_por_lote.items():
-            passo = passo_do_lote(lote)
-            for nome, valor in metricas.items():
-                mlflow.log_metric(f"campeao.{nome}", float(valor), step=passo)
-
-        for relatorio in drift_por_lote:
-            passo = passo_do_lote(relatorio.lote)
-            for feature in relatorio.features:
-                mlflow.log_metric(
-                    f"drift.psi.{feature.feature}", float(feature.psi_divergencia), step=passo
-                )
-
-        for lote, proxies in proxies_por_lote.items():
-            passo = passo_do_lote(lote)
-            for nome, valor in proxies.items():
-                mlflow.log_metric(f"proxy.{nome}", float(valor), step=passo)
-
-        # Veredito do gate: tag para busca ("todo run CRITICO"), métrica para consulta
-        # numérica (comparar, agregar, plotar a severidade ao longo de vários runs) — ver
-        # o docstring do módulo sobre por que os dois, não um só.
-        mlflow.set_tag("gate.veredito", gate.severidade.name)
-        mlflow.log_metric("gate.severidade", float(gate.severidade.value))
-
-        for artefato in artefatos:
-            mlflow.log_artifact(str(artefato))
-
+        registrar_no_run_ativo(
+            parametros=parametros,
+            metricas_do_campeao_por_lote=metricas_do_campeao_por_lote,
+            drift_por_lote=drift_por_lote,
+            proxies_por_lote=proxies_por_lote,
+            gate=gate,
+            artefatos=artefatos,
+        )
         return run.info.run_id
+
+
+def registrar_no_run_ativo(
+    *,
+    parametros: Mapping[str, int | float | str],
+    metricas_do_campeao_por_lote: Mapping[str, Mapping[str, float]],
+    drift_por_lote: Sequence[DriftReport],
+    proxies_por_lote: Mapping[str, Mapping[str, float]],
+    gate: GateDeDrift,
+    artefatos: Sequence[Path | str] = (),
+) -> None:
+    """O mesmo registro de `registrar_execucao`, gravado no run que já está aberto — o de
+    `credito.tracking.execucao.execucao_rastreada`, que abre o run no início do pipeline
+    para que uma falha no meio também fique registrada. Valida os nomes antes de gravar
+    qualquer coisa, pelo mesmo motivo."""
+    _validar_metricas_campeao(metricas_do_campeao_por_lote)
+    _validar_features(drift_por_lote)
+    _validar_proxies(proxies_por_lote)
+    for nome, valor in parametros.items():
+        mlflow.log_param(nome, valor)
+    # O alfa de correção vem do próprio `gate`, nunca repetido à mão pelo chamador —
+    # duas fontes para o mesmo número divergiriam silenciosamente no dia em que
+    # alguém mudasse uma sem lembrar da outra.
+    mlflow.log_param("gate.alfa", gate.alfa)
+
+    for lote, metricas in metricas_do_campeao_por_lote.items():
+        passo = passo_do_lote(lote)
+        for nome, valor in metricas.items():
+            mlflow.log_metric(f"campeao.{nome}", float(valor), step=passo)
+
+    for relatorio in drift_por_lote:
+        passo = passo_do_lote(relatorio.lote)
+        for feature in relatorio.features:
+            mlflow.log_metric(
+                f"drift.psi.{feature.feature}", float(feature.psi_divergencia), step=passo
+            )
+
+    for lote, proxies in proxies_por_lote.items():
+        passo = passo_do_lote(lote)
+        for nome, valor in proxies.items():
+            mlflow.log_metric(f"proxy.{nome}", float(valor), step=passo)
+
+    # Veredito do gate: tag para busca ("todo run CRITICO"), métrica para consulta
+    # numérica (comparar, agregar, plotar a severidade ao longo de vários runs) — ver
+    # o docstring do módulo sobre por que os dois, não um só.
+    mlflow.set_tag("gate.veredito", gate.severidade.name)
+    mlflow.log_metric("gate.severidade", float(gate.severidade.value))
+
+    for artefato in artefatos:
+        mlflow.log_artifact(str(artefato))

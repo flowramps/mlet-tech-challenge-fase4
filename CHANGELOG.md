@@ -5,6 +5,31 @@ versão tem uma tag no commit de merge correspondente (`git checkout v0.2.0` dev
 repositório exatamente como a Etapa 2 o deixou). Os números citados abaixo são os medidos
 na própria etapa; os atuais estão no README.
 
+## [1.1.0] — os logs de execução do pipeline, centralizados
+
+A auditoria final contra o enunciado achou o critério de observabilidade parcial: ele pede
+os logs de execução do pipeline — sucesso e falha na ingestão e na transformação, status
+das tarefas, volume processado — e a estabilidade da infraestrutura. O MLflow só recebia o
+resultado de um monitoramento bem-sucedido; um lote reprovado abortava sem rastro, e o
+treino não ia para o MLflow.
+
+### Adicionado
+- `credito.tracking.execucao`: o run é aberto no início do pipeline. Status de cada tarefa
+  (1/0, no mês do lote), volume processado e recusado por motivo, desfecho declarado; uma
+  falha fecha o run `FAILED` com tipo e mensagem. "Nada a promover" termina `FINISHED`.
+- O treino passa a ser registrado no MLflow (`credito-treino`), com as métricas de cada
+  candidato e do campeão. Visto com o dado real: promovido, não promovido e um `FAILED` por
+  piso violado.
+- Métricas do processo da API (CPU, memória, reinício) e os painéis de estabilidade da
+  infraestrutura no Grafana.
+- O plano de monitoramento documenta cada métrica de saúde do pipeline e ganha o cenário
+  de um run `FAILED` no playbook.
+- Os relatórios HTML do Evidently anexados à release, com link no README.
+
+### Corrigido
+- Os prints do MLflow mostravam o painel lateral de assistente da ferramenta, com o nome de
+  um produto de IA no seletor de modelo; recapturados sem ele.
+
 ## [1.0.0] — as dívidas declaradas, fechadas
 
 As duas lacunas que a documentação das etapas declarava — e que impediam afirmar que o
@@ -126,6 +151,7 @@ contexto conseguir entendê-lo e reproduzi-lo.
 - Gate de promoção com pisos medidos e duas exceções distintas — falha contra "nada a fazer".
 - Recorte de métricas por faixa etária.
 
+[1.1.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.5.0...v1.0.0
 [0.5.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/flowramps/mlet-tech-challenge-fase4/compare/v0.3.0...v0.4.0

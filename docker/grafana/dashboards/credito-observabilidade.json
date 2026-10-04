@@ -170,6 +170,35 @@
         "mode": "markdown",
         "content": "**Sem placeholder de dado — sem métrica Prometheus ao vivo ainda.** O PSI por feature é calculado em lote por `credito.drift.statistics.psi`, comparando a Referência contra uma janela de Produção, e hoje só é registrado como métrica do MLflow (`credito.tracking.mlflow_client`) a cada execução de `credito.pipeline.monitoring` — não é servido pela API de scoring, que responde requisição a requisição e não tem acesso à Referência completa para recalcular PSI a cada chamada.\n\nEste painel fica proposital como diagnóstico textual até existir a decisão sobre a via concreta: um job em lote que também escreva num `Gauge`/`pushgateway` do Prometheus, ou um exportador dedicado que leia o último cálculo do MLflow. Nenhum nome de métrica é inventado aqui antes dessa decisão ser tomada e medida — o mesmo padrão que este projeto já segue para todo número que aparece em código ou dashboard."
       }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Estabilidade da infraestrutura — o processo está de pé e com folga de CPU?",
+      "description": "up: o Prometheus consegue raspar a API (100% = de pé, 0% = fora). CPU: fração de um núcleo que o processo da API consome (rate de process_cpu_seconds_total). Um reinício do processo aparece como queda de up e salto em process_start_time_seconds.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "up{job=\"credito-api\"}", "legendFormat": "de pé" },
+        { "refId": "B", "expr": "rate(process_cpu_seconds_total{job=\"credito-api\"}[$__rate_interval])", "legendFormat": "CPU (fração de 1 núcleo)" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Memória residente — o processo está vazando?",
+      "description": "process_resident_memory_bytes do processo da API. Estável sob tráfego constante; crescimento contínuo sem reinício é vazamento.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "process_resident_memory_bytes{job=\"credito-api\"}", "legendFormat": "memória residente" }
+      ]
     }
   ]
 }

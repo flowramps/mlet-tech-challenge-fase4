@@ -39,13 +39,41 @@ from credito.pipeline.steps import (
     registrar_historico,
 )
 from credito.schema import ALVO, FEATURES
+from credito.tracking.execucao import Execucao, execucao_rastreada
 
 logger = logging.getLogger(__name__)
 
 
 def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
-    """Roda o pipeline completo e devolve o resumo da execução."""
+    """Roda o pipeline completo e devolve o resumo da execução.
+
+    Cada execução é um run no MLflow (experimento `Settings.mlflow_experimento_treino`),
+    aberto no início: tarefa a tarefa, com o volume que cada uma processou, e terminado
+    `FAILED` com a causa se o contrato ou o piso do gate interromperem. "Nada a promover"
+    (`ModelNotPromoted`) é desfecho normal e termina `FINISHED` — ver
+    `credito.tracking.execucao`.
+    """
     settings = get_settings()
+    with execucao_rastreada(
+        tracking_uri=settings.mlflow_tracking_uri,
+        experimento=settings.mlflow_experimento_treino,
+        artifact_location=settings.mlflow_artifact_location,
+        pipeline="treino",
+        desfechos_normais=(ModelNotPromoted,),
+    ) as execucao:
+        return _executar(settings, execucao, force_download=force_download)
+
+
+def _executar(settings: Any, execucao: Execucao, *, force_download: bool) -> dict[str, Any]:
+    execucao.parametros(
+        {
+            "semente": settings.random_seed,
+            "test_size": settings.test_size,
+            "validation_size": settings.validation_size,
+            "min_auc_pr": settings.min_auc_pr,
+            "min_recall_positivo": settings.min_recall_positivo,
+        }
+    )
 
     if not settings.dataset_path.exists() or force_download:
         baixar_dataset(
@@ -58,10 +86,24 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
     bruto = ler_arff(settings.dataset_path)
     referencia, descartes = limpar(bruto)
     logger.info("referência: %d linhas | descartes: %s", len(referencia), descartes)
+    execucao.tarefa(
+        "ingestao",
+        volume={
+            "linhas_brutas": len(bruto),
+            "linhas_referencia": len(referencia),
+            **{f"descartes.{motivo}": n for motivo, n in descartes.items()},
+        },
+    )
 
     # A Referência tem de passar no próprio contrato: se a limpeza e as regras
     # divergissem, o modelo aprenderia sobre dado que a ingestão recusaria.
-    construir_validador().validar(referencia[list(FEATURES)]).erguer()
+    resultado = construir_validador().validar(referencia[list(FEATURES)])
+    execucao.tarefa(
+        "contrato",
+        sucesso=resultado.valido,
+        volume={"linhas_reprovadas": resultado.linhas_reprovadas},
+    )
+    resultado.erguer()
 
     particoes = separar(
         referencia,
@@ -78,12 +120,20 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
         # transformaria o conjunto de teste em parte do treino e a métrica publicada
         # viraria otimista por construção.
         avaliacoes[tipo] = avaliar(modelos[tipo], particoes["validacao"])
+    execucao.tarefa(
+        "treino",
+        volume={f"linhas_{nome}": len(particao) for nome, particao in particoes.items()},
+    )
+    for tipo, metricas in avaliacoes.items():
+        execucao.metricas(f"validacao.{tipo}", metricas)
 
     campeao = max(avaliacoes, key=lambda tipo: avaliacoes[tipo]["auc_pr"])
     logger.info("campeão na validação: %s (auc_pr %.4f)", campeao, avaliacoes[campeao]["auc_pr"])
 
     metricas_teste = avaliar(modelos[campeao], particoes["teste"])
     por_faixa = avaliar_por_faixa_etaria(modelos[campeao], particoes["teste"])
+    execucao.metricas("teste", metricas_teste)
+    execucao.tarefa("avaliacao")
 
     incumbente = None
     if settings.model_path.exists():
@@ -105,6 +155,9 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
     regressao = motivos_de_regressao(metricas_teste, incumbente)
     motivos = [*piso_violado, *regressao]
     promovido = not motivos
+    # O gate funcionou sempre que decidiu; só falha (0) quando um piso absoluto é violado,
+    # que é defeito. Não superar o incumbente é decisão, e conta como tarefa bem-sucedida.
+    execucao.tarefa("gate", sucesso=not piso_violado)
 
     # O histórico é gravado antes de qualquer desfecho: uma execução reprovada é
     # exatamente a que alguém vai querer auditar depois, e ela não pode sumir do registro
@@ -125,6 +178,7 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
         # que dissesse "abaixo do piso" passaria a pintar de vermelho todo run periódico.
         if piso_violado:
             raise QualityGateError("; ".join(piso_violado))
+        execucao.concluir("nao_promovido")
         raise ModelNotPromoted("; ".join(regressao))
 
     # metrics.json só é gravado na promoção: descrever um candidato recusado enquanto
@@ -157,6 +211,8 @@ def executar_pipeline(*, force_download: bool = False) -> dict[str, Any]:
         },
         settings.metrics_dir / "metrics.json",
     )
+    execucao.artefato(settings.metrics_dir / "metrics.json")
+    execucao.concluir("promovido")
 
     return {
         "candidato": campeao,

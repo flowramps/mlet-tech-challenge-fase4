@@ -38,6 +38,7 @@ from prometheus_client import (
     Gauge,
     Histogram,
     Info,
+    ProcessCollector,
     generate_latest,
 )
 
@@ -133,6 +134,10 @@ def instrument(application: FastAPI, registry: CollectorRegistry) -> Metrics:
     testes cria várias apps no mesmo processo, e no registry global a segunda criação
     colidiria com a primeira, vazando contadores de um teste para o outro.
     """
+    # Saúde do processo (CPU, memória residente, descritores, hora de início — um reinício
+    # aparece como salto nessa última): a estabilidade da infraestrutura, no mesmo /metrics.
+    ProcessCollector(registry=registry)
+
     metrics = Metrics(
         requests_total=Counter(
             "credito_http_requests_total",
