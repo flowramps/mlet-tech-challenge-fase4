@@ -5,6 +5,13 @@ versão tem uma tag no commit de merge correspondente (`git checkout v0.2.0` dev
 repositório exatamente como a Etapa 2 o deixou). Os números citados abaixo são os medidos
 na própria etapa; os atuais estão no README.
 
+## Não lançado
+
+### Corrigido
+- `/score` agora rejeita com HTTP 422 idade, renda, dependentes, razão de dívida e
+  contadores de atraso fora do contrato antes de chamar o modelo. O schema Pydantic e o
+  contrato Pandera consomem os mesmos limites de `credito.schema`.
+
 ## [1.1.1] — o timeout que a validação final achou
 
 A validação final, num clone feito pela URL pública, reproduziu uma falha que já tinha

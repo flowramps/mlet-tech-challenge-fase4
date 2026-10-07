@@ -223,6 +223,13 @@ A implementação fica atrás de um `Protocol` (`credito.contracts.base.Validato
 são declaradas uma única vez em `rules.py`, independentes de biblioteca, e o executor
 (Pandera) fica trocável sem reescrever regra nem teste de comportamento.
 
+Na inferência unitária, `/score` materializa no schema Pydantic as cinco regras por linha
+que se aplicam a uma requisição: idade, renda, dependentes, razão de dívida e os três
+contadores de atraso. Os limites vêm das mesmas constantes de `credito.schema` consumidas
+pelo contrato Pandera; um valor semanticamente impossível recebe HTTP 422 antes de o
+modelo ser chamado. `sem_duplicatas` continua sendo uma regra de lote: duas requisições
+iguais podem representar consultas legítimas distintas e não formam um lote de ingestão.
+
 ### As seis regras e o defeito medido atrás de cada uma
 
 | Regra | Coluna | Exigência | Defeito medido que a justifica |

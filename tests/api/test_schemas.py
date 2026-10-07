@@ -4,8 +4,17 @@ lista solta — é o que faz o corte que `para_registro` devolve casar exatament
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from credito.api.schemas import ScoreRequest
-from credito.schema import FEATURES
+from credito.schema import (
+    ATRASO_MAXIMO_PLAUSIVEL,
+    DEBT_RATIO_MAXIMO,
+    FEATURES,
+    IDADE_MAXIMA,
+    IDADE_MINIMA,
+)
 
 _PAYLOAD = {
     "RevolvingUtilizationOfUnsecuredLines": 0.3,
@@ -75,3 +84,48 @@ def test_identificador_enviado_a_mais_e_descartado_antes_de_chegar_ao_modelo():
     sobreviventes = set(requisicao.model_dump(by_alias=True))
     assert sobreviventes == set(FEATURES)
     assert set(requisicao.para_registro()) == set(FEATURES)
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("age", IDADE_MINIMA - 1),
+        ("age", IDADE_MAXIMA + 1),
+        ("DebtRatio", -0.01),
+        ("DebtRatio", DEBT_RATIO_MAXIMO + 0.01),
+        ("MonthlyIncome", -0.01),
+        ("NumberOfDependents", -1),
+        ("NumberOfTime30-59DaysPastDueNotWorse", -1),
+        ("NumberOfTime30-59DaysPastDueNotWorse", ATRASO_MAXIMO_PLAUSIVEL + 1),
+        ("NumberOfTimes90DaysLate", -1),
+        ("NumberOfTimes90DaysLate", ATRASO_MAXIMO_PLAUSIVEL + 1),
+        ("NumberOfTime60-89DaysPastDueNotWorse", -1),
+        ("NumberOfTime60-89DaysPastDueNotWorse", ATRASO_MAXIMO_PLAUSIVEL + 1),
+    ],
+)
+def test_score_request_rejeita_valor_fora_do_contrato(campo, valor):
+    with pytest.raises(ValidationError):
+        ScoreRequest.model_validate({**_PAYLOAD, campo: valor})
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("age", IDADE_MINIMA),
+        ("age", IDADE_MAXIMA),
+        ("DebtRatio", 0),
+        ("DebtRatio", DEBT_RATIO_MAXIMO),
+        ("MonthlyIncome", 0),
+        ("NumberOfDependents", 0),
+        ("NumberOfTime30-59DaysPastDueNotWorse", 0),
+        ("NumberOfTime30-59DaysPastDueNotWorse", ATRASO_MAXIMO_PLAUSIVEL),
+        ("NumberOfTimes90DaysLate", 0),
+        ("NumberOfTimes90DaysLate", ATRASO_MAXIMO_PLAUSIVEL),
+        ("NumberOfTime60-89DaysPastDueNotWorse", 0),
+        ("NumberOfTime60-89DaysPastDueNotWorse", ATRASO_MAXIMO_PLAUSIVEL),
+    ],
+)
+def test_score_request_aceita_limites_inclusivos_do_contrato(campo, valor):
+    requisicao = ScoreRequest.model_validate({**_PAYLOAD, campo: valor})
+
+    assert requisicao.para_registro()[campo] == valor

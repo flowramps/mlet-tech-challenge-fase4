@@ -108,6 +108,23 @@ def test_score_rejeita_corpo_vazio(client):
     assert client.post("/score", json={}).status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("MonthlyIncome", -1),
+        ("age", 17),
+        ("NumberOfTimes90DaysLate", 98),
+        ("NumberOfDependents", -1),
+        ("DebtRatio", 11),
+    ],
+)
+def test_score_rejeita_regra_de_negocio_antes_da_inferencia(client, campo, valor):
+    resposta = client.post("/score", json=_payload(**{campo: valor}))
+
+    assert resposta.status_code == 422
+    assert "credito_inference_duration_seconds_count 0.0" in client.get("/metrics").text
+
+
 def test_openapi_documenta_as_tres_rotas(client):
     caminhos = client.get("/openapi.json").json()["paths"]
     assert "/health" in caminhos

@@ -13,7 +13,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from credito.schema import FEATURES
+from credito.schema import (
+    ATRASO_MAXIMO_PLAUSIVEL,
+    DEBT_RATIO_MAXIMO,
+    FEATURES,
+    IDADE_MAXIMA,
+    IDADE_MINIMA,
+)
 
 
 class ScoreRequest(BaseModel):
@@ -29,21 +35,36 @@ class ScoreRequest(BaseModel):
         alias="RevolvingUtilizationOfUnsecuredLines",
         description="Saldo em aberto nas linhas de crédito rotativo, sobre o limite total.",
     )
-    age: int = Field(description="Idade do cliente, em anos completos.")
+    age: int = Field(
+        ge=IDADE_MINIMA,
+        le=IDADE_MAXIMA,
+        description="Idade do cliente, em anos completos.",
+    )
     number_of_time_30_59_days_past_due_not_worse: int = Field(
         alias="NumberOfTime30-59DaysPastDueNotWorse",
+        ge=0,
+        le=ATRASO_MAXIMO_PLAUSIVEL,
         description="Quantidade de atrasos de 30 a 59 dias nos últimos dois anos.",
     )
     debt_ratio: float = Field(
-        alias="DebtRatio", description="Razão entre dívida mensal e renda mensal."
+        alias="DebtRatio",
+        ge=0,
+        le=DEBT_RATIO_MAXIMO,
+        description="Razão entre dívida mensal e renda mensal.",
     )
-    monthly_income: float = Field(alias="MonthlyIncome", description="Renda mensal declarada.")
+    monthly_income: float = Field(
+        alias="MonthlyIncome",
+        ge=0,
+        description="Renda mensal declarada.",
+    )
     number_of_open_credit_lines_and_loans: int = Field(
         alias="NumberOfOpenCreditLinesAndLoans",
         description="Quantidade de linhas de crédito e empréstimos abertos.",
     )
     number_of_times_90_days_late: int = Field(
         alias="NumberOfTimes90DaysLate",
+        ge=0,
+        le=ATRASO_MAXIMO_PLAUSIVEL,
         description="Quantidade de atrasos de 90 dias ou mais nos últimos dois anos.",
     )
     number_real_estate_loans_or_lines: int = Field(
@@ -52,10 +73,14 @@ class ScoreRequest(BaseModel):
     )
     number_of_time_60_89_days_past_due_not_worse: int = Field(
         alias="NumberOfTime60-89DaysPastDueNotWorse",
+        ge=0,
+        le=ATRASO_MAXIMO_PLAUSIVEL,
         description="Quantidade de atrasos de 60 a 89 dias nos últimos dois anos.",
     )
     number_of_dependents: float = Field(
-        alias="NumberOfDependents", description="Quantidade de dependentes do cliente."
+        alias="NumberOfDependents",
+        ge=0,
+        description="Quantidade de dependentes do cliente.",
     )
 
     def para_registro(self) -> dict[str, float]:
