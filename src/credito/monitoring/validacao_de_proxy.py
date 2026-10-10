@@ -1,11 +1,12 @@
 """Quanto cada proxy sem rótulo antecipa a degradação real — o entregável central da Etapa 3.
 
-A Etapa 2 provou, por intervenção causal, que PSI de feature mede 3,1% da degradação do
-campeão, enquanto concept drift (invisível a qualquer PSI sobre `P(X)`) mede 48% (ver
-`credito.drift.causal`, números publicados no README). Disso segue que um painel que
-dispara no PSI de feature mais alto aponta consistentemente para a causa errada — mas isso
-não diz se ALGUM sinal observável sem rótulo (`credito.monitoring.proxies`) rastreia a
-degradação real. Só é possível responder essa pergunta porque a simulação da Etapa 2 *tem*
+A Etapa 2 mediu, por análise fatorial dentro do simulador, que os efeitos isolados das
+features de maior PSI somam 3,1% da queda conjunta, enquanto o efeito isolado do concept
+drift (invisível a qualquer PSI sobre `P(X)`) corresponde a 48% (ver
+`credito.drift.causal`, números publicados no README). Isso mostra que PSI alto não
+identifica o mecanismo de maior efeito sobre o desempenho — mas não diz se ALGUM sinal
+observável sem rótulo (`credito.monitoring.proxies`) rastreia a degradação. Só é possível
+responder essa pergunta porque a simulação da Etapa 2 *tem*
 rótulo: nenhum sistema em produção consegue rodar esta validação, porque não teria a
 degradação real para comparar (ver `docs/monitoring_plan.md`).
 

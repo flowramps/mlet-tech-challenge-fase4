@@ -28,12 +28,12 @@ Duas coisas diferentes acontecem, e ficam em funções separadas de propósito:
   ``intensidade == 0``, o rótulo nunca é tocado.
 
 As quatro funções são expostas separadamente — não só compostas dentro de
-``simular_producao`` — porque uma etapa posterior faz atribuição causal por
-**intervenção**: aplica o drift a uma variável de cada vez, mantendo as outras fixas, e
-mede o quanto cada uma isoladamente degrada o modelo. Isso só é uma medida causal válida
-se a intervenção usar exatamente a mesma transformação que gerou os dados simulados — se
-a atribuição precisasse reimplementar a lógica, mediria um processo gerador diferente do
-que foi de fato simulado, e a análise inteira perderia validade.
+``simular_producao`` — porque uma etapa posterior faz uma análise fatorial de
+**sensibilidade**: aplica o drift a uma variável de cada vez, mantendo as outras fixas, e
+mede o quanto cada uma isoladamente degrada o modelo dentro do simulador. Para preservar a
+validade interna, o cenário isolado precisa usar exatamente a mesma transformação que gerou
+os dados simulados — se a análise precisasse reimplementar a lógica, mediria um processo
+gerador diferente do que foi de fato simulado, e a análise inteira perderia validade.
 """
 
 from __future__ import annotations

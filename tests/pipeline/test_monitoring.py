@@ -1,5 +1,5 @@
 """A orquestração compõe peças já testadas isoladamente (contrato, simulação, PSI/KS
-próprio, Evidently, gate, degradação, atribuição causal) — o que estes testes cobrem é o
+próprio, Evidently, gate, degradação, análise fatorial) — o que estes testes cobrem é o
 ENCADEAMENTO: a ordem certa, o desfecho certo quando um lote reprova o contrato, e que a
 consolidação aponta exatamente as features que `credito.data.simulate` de fato desloca.
 
@@ -197,7 +197,7 @@ def test_json_consolidado_poe_a_consequencia_antes_da_tabela_de_psi(ambiente):
     """A ordem das chaves do JSON é uma afirmação feita em três documentos — o docstring
     de `credito.pipeline.monitoring`, a seção de monitoramento do README e
     `docs/model_card.md` dizem todos que o consolidado grava a consequência (degradação e
-    atribuição causal) ANTES da tabela de PSI/KS, que mora dentro de `lotes`.
+    análise fatorial) ANTES da tabela de PSI/KS, que mora dentro de `lotes`.
 
     `json.dumps` preserva a ordem de inserção do dict e `json.loads` a devolve — então a
     ordem é observável por quem lê o arquivo, humano ou máquina, e é testável aqui. Sem
@@ -397,7 +397,7 @@ def test_narrativa_aponta_quando_concept_drift_supera_a_feature_de_maior_psi():
     narrativa = _narrativa_causal_versus_psi(relatorio, atribuicao)
 
     assert "DebtRatio" in narrativa
-    assert "não é a causa mais provável" in narrativa
+    assert "não é o fator de maior efeito no simulador" in narrativa
 
 
 def test_narrativa_nao_alerta_quando_a_feature_de_maior_psi_de_fato_domina():
@@ -417,14 +417,14 @@ def test_narrativa_nao_alerta_quando_a_feature_de_maior_psi_de_fato_domina():
 
     narrativa = _narrativa_causal_versus_psi(relatorio, atribuicao)
 
-    assert "não é a causa mais provável" not in narrativa
+    assert "não é o fator de maior efeito no simulador" not in narrativa
 
 
 def test_narrativa_distingue_sem_canal_isolado_de_degradacao_nao_mensuravel():
     """Regressão de revisão: duas razões diferentes podem impedir o cálculo da fração, e
     a narrativa não pode usar a mesma frase para as duas. Aqui a feature de maior PSI
     (`NumberOfDependents`) é uma das sete que `credito.data.simulate` nunca desloca — não
-    tem canal causal isolado —, mas a degradação do lote está perfeitamente mensurada
+    tem fator isolado no simulador —, mas a degradação do lote está perfeitamente mensurada
     (`efeito_conjunto=0.05 > 0`). Dizer "degradação não mensurável" seria falso.
     """
     relatorio = _relatorio("NumberOfDependents", 0.30)
@@ -443,7 +443,7 @@ def test_narrativa_distingue_sem_canal_isolado_de_degradacao_nao_mensuravel():
 
     narrativa = _narrativa_causal_versus_psi(relatorio, atribuicao)
 
-    assert "não tem canal isolado" in narrativa
+    assert "não tem fator isolado" in narrativa
     assert "não mensurável" not in narrativa
 
 

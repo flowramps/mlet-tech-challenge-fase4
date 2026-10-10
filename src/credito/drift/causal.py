@@ -1,29 +1,32 @@
-"""Atribuição causal por intervenção: qual variável deslocada é responsável pela
-degradação do campeão — respondida por `do(·)`, não por correlação.
+"""Análise fatorial de sensibilidade: quanto cada transformação do simulador desloca o
+desempenho do campeão quando as demais permanecem em intensidade zero.
 
 Em dado observacional, quando renda, endividamento e atraso se deslocam juntos, nada
 distingue qual dos três causou a queda de desempenho — os três se movem na mesma janela de
 tempo, e atribuir a qualquer um deles seria coincidência temporal travestida de causa. A
-resposta por intervenção é diferente: fixar as demais variáveis exatamente como estavam e
-mover só uma, medindo a queda que essa única mudança produz. É o que este módulo faz, um
-cenário por vez — e só é possível aqui porque a Produção é simulada e o processo gerador é
-conhecido e controlável; a condição e a limitação que ela implica (em produção real não há
-intervenção disponível — ver o módulo docstring de `atribuir_degradacao`) são a mesma
-moeda.
+O simulador permite fixar as demais transformações e mover só uma, medindo o efeito daquele
+fator no processo gerador conhecido. É o que este módulo faz, um cenário por vez. Essa
+validade é **interna ao simulador**: o resultado não identifica efeitos causais sobre uma
+carteira real, na qual não há intervenção controlada nem garantia de que este processo
+gerador represente a população.
+
+O nome do módulo e da função é preservado por compatibilidade com relatórios e consumidores
+existentes. Sua interpretação acadêmica é a de sensibilidade fatorial, delimitada em
+``docs/metodologia.md``.
 
 Cada cenário chama diretamente as transformações públicas de `credito.data.simulate`
 (nunca as reimplementa): `_gerar_lote` compõe as quatro na mesma ordem que
 `simular_producao` usa, ligando (intensidade > 0) só a transformação da variável que o
 cenário isola — as demais entram com intensidade zero, que cada uma já documenta como
 no-op ou identidade. O cenário "todos" reproduz, linha a linha, o lote que
-`simular_producao` geraria para o mesmo mês — condição sem a qual a atribuição mediria um
+`simular_producao` geraria para o mesmo mês — condição sem a qual a análise mediria um
 processo gerador diferente do que foi de fato simulado, e a análise perderia validade (ver
 o docstring de `VARIAVEIS_COM_DRIFT` em `simulate.py`).
 
 **Três coisas sustentam essa reprodução, e é por elas que a validade responde:**
 
 - **A janela `meses`**, que fixa a intensidade `k = mes / meses`. Ela é parâmetro aqui
-  justamente porque `simular_producao` também a recebe: se a atribuição lesse a constante
+  justamente porque `simular_producao` também a recebe: se a análise lesse a constante
   `MESES` enquanto a simulação monitorada rodasse com outra janela, o cenário "todos"
   deixaria de reproduzir o lote monitorado sem nenhum aviso — medido, antes da correção,
   com `meses=3`: 0,497540 contra 0,492355 de AUC-ROC no mesmo mês.
@@ -104,8 +107,8 @@ def _gerar_lote(
     neste cenário — as demais recebem intensidade zero, que cada uma documenta como sem
     efeito (`aplicar_drift_de_renda`/`aplicar_drift_de_divida` multiplicam por 1;
     `aplicar_drift_de_atraso`/`aplicar_concept_drift` não sorteiam nada). Fixar tudo e
-    mover só uma é o próprio desenho da intervenção: nenhuma outra variável muda porque a
-    função que a moveria roda com intensidade zero, não porque foi pulada.
+    mover só uma define o cenário fatorial: nenhuma outra variável muda porque a função
+    que a moveria roda com intensidade zero, não porque foi pulada.
     """
     lote = referencia.copy()
     lote = aplicar_drift_de_renda(lote, k if liga_renda else 0.0)
@@ -118,8 +121,12 @@ def _gerar_lote(
 def atribuir_degradacao(
     referencia: pd.DataFrame, modelo: Any, *, mes: int, seed: int, meses: int = MESES
 ) -> dict[str, Any]:
-    """Decompõe a degradação do campeão em `mes` nos quatro canais de drift que
-    `credito.data.simulate` expõe, mais o termo de interação entre eles.
+    """Decompõe, dentro do simulador, a degradação do campeão em `mes` nos quatro fatores
+    de drift que `credito.data.simulate` expõe, mais o termo de interação entre eles.
+
+    O resultado é uma análise de sensibilidade condicionada a este processo gerador, a
+    este modelo e a esta trajetória. Não é uma estimativa causal transportável para uma
+    população real; ver ``docs/metodologia.md``.
 
     Para cada cenário da tabela do método, gera o lote correspondente (`_gerar_lote`,
     delegando inteiramente às transformações de `simulate.py`) e mede `METRICA` com

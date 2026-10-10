@@ -390,7 +390,7 @@ def test_resumo_traz_a_nota_diagnostica_sem_citar_numeros_do_campeao():
     # A armadilha que este texto existe para evitar: um leitor que visse só a tabela de
     # PSI concluiria que a feature mais barulhenta é o problema mais urgente. Mas o gate
     # não tem acesso ao campeão publicado nem ao dado real (nenhum teste desta suíte
-    # toca rede ou dataset) — citar aqui um número específico da atribuição causal seria
+    # toca rede ou dataset) — citar aqui um número específico da análise fatorial seria
     # o gate afirmando uma medição que ele nunca fez, e um retreino do campeão tornaria
     # esse número obsoleto sem que nada nesta suíte notasse. O aviso é qualitativo:
     # aponta para onde a medição real mora, sem repeti-la.
@@ -400,7 +400,7 @@ def test_resumo_traz_a_nota_diagnostica_sem_citar_numeros_do_campeao():
     assert "diagnóstico" in resumo.lower()
     assert "atribuir_degradacao" in resumo
     assert "degradacao_por_lote" in resumo
-    # Nenhum número específico da decomposição causal pode vazar para o texto emitido —
+    # Nenhum número específico da análise fatorial pode vazar para o texto emitido —
     # regressão explícita: o gate não tem como medir esses números e não pode citá-los.
     # Os quatro literais são os da execução ATUAL publicada no README e no model card
     # (`DebtRatio` PSI 0,5046, `MonthlyIncome` PSI 0,2634, as duas juntas respondendo por

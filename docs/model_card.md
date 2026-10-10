@@ -9,6 +9,7 @@
 | **Artefato** | `models/model.joblib` — modelo e metadados no mesmo pacote |
 | **Semente** | 42 |
 | **Reprodução** | `make data && make train` (monitoramento: `make monitor`) |
+| **Escopo inferencial** | experimento de engenharia sobre produção simulada; ver [`metodologia.md`](metodologia.md) |
 
 ---
 
@@ -191,8 +192,9 @@ O que resta acima do piso — poder discriminativo de verdade — cai de 0,3022 
 **Reportar AUC-PR sozinha sobre uma população em movimento subestima a degradação em mais
 da metade.**
 
-**De onde a queda vem.** Decompondo a perda de AUC-ROC do mês 6 (0,2079) por intervenção —
-deslocando uma variável por vez e mantendo as demais fixas:
+**De onde a queda vem dentro do simulador.** Decompondo a perda de AUC-ROC do mês 6
+(0,2079) por cenários controlados — deslocando uma transformação por vez e mantendo as
+demais em intensidade zero:
 
 | Canal isolado | Queda | Fração |
 |---|---:|---:|
@@ -202,14 +204,15 @@ deslocando uma variável por vez e mantendo as demais fixas:
 | **concept drift** (`P(y\|X)`) | **0,0998** | **48,0%** |
 | interação entre os quatro | 0,0876 | 42,1% |
 
-As duas variáveis com PSI mais alto (`DebtRatio` 0,5046 e `MonthlyIncome` 0,2634) explicam
-**3,1% da degradação entre as duas**. O concept drift, que nenhum PSI por feature enxerga
-porque não move `P(X)`, explica quase metade. **Drift de feature é diagnóstico; a
-degradação medida é o alarme** — e um alerta de drift não indica, por si, qual variável
-investigar.
+No cenário sintético, os efeitos isolados das duas variáveis com PSI mais alto (`DebtRatio`
+0,5046 e `MonthlyIncome` 0,2634) somam **3,1% da queda conjunta**. O efeito isolado do
+concept drift, que nenhum PSI por feature enxerga porque não move `P(X)`, corresponde a
+48,0%. **Drift de feature é diagnóstico; a degradação medida é o alarme** — e um alerta de
+drift não indica, por si, qual mecanismo mais afetou o desempenho.
 
-Esta decomposição só é possível porque a Produção é simulada e o processo gerador é
-controlável. Ver as limitações abaixo.
+Esta análise fatorial de sensibilidade só é possível porque a Produção é simulada e o
+processo gerador é controlável. Ela não identifica efeitos causais numa carteira real. Ver
+as limitações abaixo e [`metodologia.md`](metodologia.md).
 
 ---
 
@@ -242,14 +245,14 @@ controlável. Ver as limitações abaixo.
   as features. Em crédito o rótulo demora — "dificuldade grave nos próximos dois anos" só é
   observável dois anos depois —, e é esse atraso que torna a degradação silenciosa um
   problema operacional. A defasagem não está modelada.
-- **A atribuição causal por intervenção não é reproduzível em produção.** Ela exige
-  controlar o processo gerador para mover uma variável de cada vez. O substituto disponível
+- **A análise fatorial do simulador não identifica causalidade em produção.** Ela exige
+  controlar o processo gerador para mover uma transformação de cada vez. O substituto disponível
   em produção — importância por permutação sobre o lote degradado — mede sensibilidade do
   modelo, não causa do deslocamento, e não enxerga nem o concept drift nem o termo de
   interação, que juntos respondem por 90,1% da queda medida.
-- **Sem rótulo, metade da degradação é invisível.** Os 48,0% atribuídos ao concept drift só
-  aparecem porque a métrica foi calculada contra o rótulo verdadeiro. Nenhum detector de
-  drift de feature acusaria essa parte.
+- **Sem rótulo, a mudança em `P(y|X)` é invisível.** O efeito isolado de 48,0% observado
+  nesta trajetória só aparece porque a métrica foi calculada contra o rótulo verdadeiro.
+  Nenhum detector de drift de feature acusaria essa parte.
 - **O alarme de produção (`taxa_de_aprovacao`, servido pela API instrumentada) é um proxy
   validado só nesta simulação, nunca contra rótulo real.** A concordância perfeita medida
   (Spearman rho = −1,0000, n = 6) é evidência dentro do regime de drift que este projeto
@@ -264,11 +267,11 @@ controlável. Ver as limitações abaixo.
 | Risco | Descrição | Mitigação atual | Pendente |
 |---|---|---|---|
 | **Falso positivo em escala** | Precisão de 0,2350: cerca de 3 em cada 4 recusas atingem bons pagadores. Perda de receita e de relacionamento | Recall privilegiado por decisão explícita e documentada de custo | Curva de custo para escolher o limiar |
-| **Viés etário** | Recusa varia 4,7× entre faixas contra 2,7× de variação no risco real. Severidade desproporcional com jovens | Medido e publicado a cada execução em `metrics.json`, com as duas métricas formais: razão 4/5 (18-25 e 26-40 abaixo de 0,80) e igualdade de oportunidade (61+ com o pior recall) | Mitigação escolhida entre as opções de `docs/governanca.md`, medida pelas duas métricas antes e depois |
+| **Assimetria etária** | Recusa varia 4,7× entre faixas e o risco observado, 2,7×; as razões não isolam efeito atribuível à idade | Medido e publicado a cada execução em `metrics.json`, com duas triagens: razão 4/5 (18-25 e 26-40 abaixo de 0,80) e igualdade de oportunidade (61+ com o pior recall) | Incerteza por grupo, análise condicional, modelo sem idade e mitigação medida antes e depois |
 | **Exclusão de quem não declara renda** | 19,82% do bruto. Hoje bloqueado no contrato, não pontuado | Bloqueio explícito e auditável, em vez de pontuação sobre dado inventado | Política de imputação ou modelo dedicado |
-| **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a decomposição causal, com veredito consolidado; a API de scoring expõe `taxa_de_aprovacao` ao vivo, com uma regra de alerta no Prometheus calibrada por medição (limiar 0,7755 numa janela de 2.000 decisões, 1% de falso alarme) e vista disparando com tráfego do mês 6 (ver `docs/monitoring_plan.md`) | Medição sobre lote de produção real, com a defasagem de rótulo modelada; um alarme que veja a degradação precoce: com a janela de 2.000, o alerta calibrado pega 14,9% das janelas no mês 1 e 79,5% no mês 3 |
-| **Alarmar na variável errada** | PSI aponta onde a distribuição se moveu, não quanto custou. As duas variáveis de PSI mais alto explicam 3,1% da degradação medida | O relatório consolidado publica a decomposição causal **antes** da tabela de PSI, e o resumo do gate carrega a ressalva embutida | Detecção de concept drift sem rótulo |
-| **Dado quebrado na ingestão** | Nulo, sentinela, duplicata, valor implausível | Contrato de 6 regras bloqueando antes do treino e da inferência | Aplicação do mesmo contrato no endpoint de serviço |
+| **Degradação silenciosa** | O modelo continua respondendo com dado deslocado. Medido sob drift simulado: recall + cai 45,1% e o lift acima do piso 59,2%, sem uma única linha inválida | Histórico de execuções *append-only*; `make monitor` mede PSI/KS por feature, a degradação do campeão lote a lote e a análise fatorial no simulador, com veredito consolidado; a API de scoring expõe `taxa_de_aprovacao` ao vivo, com uma regra de alerta no Prometheus calibrada por medição (limiar 0,7755 numa janela de 2.000 decisões, 1% de falso alarme) e vista disparando com tráfego do mês 6 (ver `docs/monitoring_plan.md`) | Medição sobre lote de produção real, com a defasagem de rótulo modelada; um alarme que veja a degradação precoce: com a janela de 2.000, o alerta calibrado pega 14,9% das janelas no mês 1 e 79,5% no mês 3 |
+| **Alarmar na variável errada** | PSI aponta onde a distribuição se moveu, não quanto custou. No simulador, os efeitos isolados das duas variáveis de maior PSI somam 3,1% da queda conjunta | O relatório consolidado publica a análise fatorial **antes** da tabela de PSI, e o resumo do gate carrega a ressalva embutida | Detecção de concept drift sem rótulo |
+| **Dado quebrado na ingestão** | Nulo, sentinela, duplicata, valor implausível | Contrato de 6 regras bloqueando antes do treino e da inferência, inclusive no endpoint `/score` | Ampliar domínios estruturais e bloquear campos extras |
 | **Variável correlacionada com atributo protegido** | Renda e número de dependentes podem carregar sinal de gênero, raça ou região não observados | Nenhuma | Auditoria de *proxy* para atributos protegidos não presentes no dado |
 | **Reidentificação da Referência** | Sem CPF, mas 53,30% das linhas são únicas em idade + renda + dependentes: quem conhece esses três fatos acha a linha e o rótulo de inadimplência | Tratada como dado pessoal pseudonimizado; a API descarta identificador enviado a mais; `generalizar` reduz grupos menores que 5 de 75,62% para 0,01% das linhas | Aplicar generalização e supressão antes de conservar ou compartilhar a Referência |
 | **Uso fora do escopo** | Interpretar a saída como precificação ou como característica da pessoa | Este documento | Contrato de uso junto à equipe consumidora |
@@ -309,7 +312,7 @@ medida; e, desde a versão 1.0.0, cada decisão de **crédito** registrada antes
 ---
 
 *Métricas do modelo publicado medidas na execução registrada em `metrics/metrics.json`,
-reproduzível por `make data && make train`. Degradação sob drift e decomposição causal
+reproduzível por `make data && make train`. Degradação sob drift e análise fatorial
 medidas na execução registrada em `reports/monitoramento.json`, reproduzível por
 `make monitor` — a mesma execução que o MLflow registra como run (ver
 `docs/monitoring_plan.md`). Os dois arquivos JSON são gerados, não versionados.*

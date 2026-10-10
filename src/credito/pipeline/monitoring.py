@@ -39,10 +39,10 @@ orquestração é o único lugar do projeto com acesso simultâneo ao campeão p
 processo gerador controlável — por isso é o único lugar capaz de compor as duas leituras
 lado a lado: a degradação real (a mesma conta de `credito.drift.calibration.
 degradacao_por_lote` — `avaliar(modelo, lote)` —, reaproveitada das métricas já calculadas
-por lote em vez de recalculada) e a decomposição causal por intervenção
+por lote em vez de recalculada) e a análise fatorial dentro do simulador
 (`atribuir_degradacao`) entram no relatório consolidado ANTES do veredicto de
 PSI/KS, não depois. Colocar a tabela de PSI primeiro deixaria o olho do leitor ancorar em
-"maior número" antes de aprender que PSI alto não é o mesmo que causa mais provável — é
+"maior número" antes de aprender que PSI alto não identifica o fator de maior efeito — é
 exatamente a armadilha que `_NOTA_DIAGNOSTICO`, em `drift/gate.py`, avisa sem números por
 não ter este acesso; `_narrativa_causal_versus_psi`, abaixo, é o lugar do projeto que tem
 e usa.
@@ -96,8 +96,8 @@ class ReferenciaInvalida(ContratoViolado):
 
 
 # Mapeia cada variável que `credito.data.simulate` de fato desloca (`VARIAVEIS_COM_DRIFT`)
-# ao canal correspondente na atribuição causal por intervenção (`credito.drift.causal`),
-# para narrar qual fração da degradação medida uma feature de PSI alto de fato explica.
+# ao fator correspondente na análise do simulador (`credito.drift.causal`), para narrar
+# qual fração da queda conjunta corresponde ao efeito isolado de uma feature de PSI alto.
 # `test_canal_por_feature_cobre_exatamente_as_variaveis_com_drift` trava que este mapa
 # nunca fique defasado de `VARIAVEIS_COM_DRIFT` — o mesmo tipo de guarda que
 # `contracts/pandera_backend.py` já usa entre `_REGRA_POR_COLUNA` e `rules.REGRAS`.
@@ -171,7 +171,7 @@ def _narrativa_causal_versus_psi(
     relatorio_final: DriftReport, atribuicao_final: dict[str, Any]
 ) -> str:
     """Amarra, no último lote da janela, o veredicto de PSI ao custo real medido pela
-    atribuição causal — o texto que esta orquestração tem condição de escrever (tem acesso
+    análise fatorial — o texto que esta orquestração tem condição de escrever (tem acesso
     ao campeão publicado e ao gerador controlável) e que `drift/gate.py` deliberadamente
     não escreve (não tem, ver `_NOTA_DIAGNOSTICO` naquele módulo). Todo número aqui é
     medido nesta mesma execução — nunca citado de memória de uma execução anterior.
@@ -193,40 +193,41 @@ def _narrativa_causal_versus_psi(
     # nunca desloca).
     if canal is None:
         linhas.append(
-            f"{maior_psi.feature} não tem canal isolado na atribuição causal por "
-            "intervenção — a comparação entre PSI e causa não se aplica a ela."
+            f"{maior_psi.feature} não tem fator isolado na análise do simulador — a "
+            "comparação entre PSI e efeito sobre o desempenho não se aplica a ela."
         )
     elif efeito_conjunto <= 0:
         linhas.append(
             "Degradação não mensurável neste lote (efeito_conjunto <= 0) — a comparação "
-            "entre PSI e causa fica sem base neste ponto da janela."
+            "entre PSI e efeito fica sem base neste ponto da janela."
         )
     else:
         fracao_da_feature = degradacao[canal] / efeito_conjunto
         fracao_do_concept = degradacao["concept_drift"] / efeito_conjunto
         linhas.append(
-            f"Na atribuição causal por intervenção do mesmo lote, o canal {canal!r} (o "
-            f"que {maior_psi.feature} desloca) responde por {fracao_da_feature:.1%} da "
+            f"Na análise fatorial do mesmo lote, o fator {canal!r} (o que "
+            f"{maior_psi.feature} desloca) corresponde a {fracao_da_feature:.1%} da "
             f"queda de {atribuicao_final['metrica']} medida contra o campeão publicado; "
             f"o concept drift isolado responde por {fracao_do_concept:.1%}."
         )
         if fracao_do_concept > fracao_da_feature:
             linhas.append(
-                "A feature de maior PSI não é a causa mais provável da degradação medida "
-                "neste lote — PSI mede onde a distribuição se moveu, não quanto isso "
-                "custou (ver credito.drift.causal.atribuir_degradacao)."
+                "A feature de maior PSI não é o fator de maior efeito no simulador neste "
+                "lote — PSI mede onde a distribuição se moveu, não quanto isso afetou o "
+                "desempenho (ver credito.drift.causal.atribuir_degradacao)."
             )
 
     linhas.append(
         "Nota: PSI e KS são diagnóstico — onde a distribuição de entrada se moveu. A "
-        "atribuição causal por intervenção é o custo real medido contra o campeão "
-        "publicado. Os dois não precisam apontar para a mesma variável."
+        "análise fatorial mede a sensibilidade do campeão dentro do simulador. Os dois "
+        "não precisam apontar para a mesma variável; nenhum deles, isoladamente, prova "
+        "causalidade em produção."
     )
     return "\n".join(linhas)
 
 
 def _gravar_relatorio_consolidado(diretorio: Path, resultado: dict[str, Any]) -> Path:
-    """Grava o resumo consolidado (gate, degradação, atribuição causal e narrativa) em
+    """Grava o resumo consolidado (gate, degradação, análise fatorial e narrativa) em
     JSON ao lado dos HTML por lote — o mesmo padrão de `model.evaluate.salvar_metricas`
     para o treino. `/reports/` é git-ignored: o arquivo é reproduzido a cada run, não um
     artefato versionado.

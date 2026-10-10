@@ -12,9 +12,10 @@
 
 Duas medições das etapas anteriores decidem o que este documento pode e não pode prometer:
 
-1. **Drift de feature é diagnóstico, não alarme.** As duas variáveis de maior PSI
-   (`DebtRatio` e `MonthlyIncome`) explicam juntas **3,1%** da degradação real medida; o
-   concept drift — invisível a qualquer PSI sobre as features — explica **48,0%**.
+1. **Drift de feature é diagnóstico, não alarme.** No cenário sintético, os efeitos
+   isolados das duas variáveis de maior PSI (`DebtRatio` e `MonthlyIncome`) somam **3,1%**
+   da queda conjunta; o efeito isolado do concept drift — invisível a qualquer PSI sobre
+   as features — corresponde a **48,0%**.
 2. **Em produção não existe rótulo.** A degradação real (queda de AUC-ROC, de recall) só
    é mensurável porque a simulação controla o processo gerador. Um sistema real não sabe
    quem inadimpliu até meses depois da decisão.
@@ -199,11 +200,11 @@ e não de convenção de mercado, exceto onde isso é dito explicitamente.
   dívida declarada no próprio `config.py`: cortar em 0,0016 transformaria variação
   amostral irrelevante em alarme diário.
 - **A armadilha que este painel existe para prevenir:** as duas features de PSI mais alto
-  (`DebtRatio` 0,5046 e `MonthlyIncome` 0,2634) respondem por apenas **3,1%** da
-  degradação real medida no mês 6; o concept drift — que nenhum PSI de feature enxerga,
-  porque não desloca `P(X)` — responde por **48,0%**, e a interação entre os canais por
-  **42,1%**. **Um PSI de feature alto não diz que aquela feature é a causa mais provável
-  da degradação — diz só que a distribuição de entrada dela se moveu.**
+  (`DebtRatio` 0,5046 e `MonthlyIncome` 0,2634) têm efeitos isolados que somam **3,1%** da
+  queda conjunta medida no mês 6; o efeito isolado do concept drift — que nenhum PSI de
+  feature enxerga, porque não desloca `P(X)` — corresponde a **48,0%**, e a interação
+  entre os fatores, a **42,1%**. **Um PSI de feature alto não identifica o mecanismo de
+  maior efeito sobre o desempenho — diz apenas que a distribuição de entrada se moveu.**
 - **Quando consultar:** depois que o painel 5 (ou 4) já indicou que algo degradou — nunca
   antes. A ordem de leitura é deliberada.
 
@@ -287,15 +288,15 @@ latência HTTP total (painel 2)?
 
 ### D. Uma feature específica cruzou a nula de PSI (painel 6, quando ligado)
 
-**Primeira pergunta:** essa feature está no canal de atribuição causal medido (renda,
-dívida, atraso)? Quanto ela sozinha explicou da degradação real no mês de maior
-degradação (0,8% / 2,3% / 6,8%, respectivamente)?
+**Primeira pergunta:** essa feature está entre os fatores isolados no simulador (renda,
+dívida, atraso)? Qual foi seu efeito sobre a queda conjunta no mês de maior degradação
+(0,8% / 2,3% / 6,8%, respectivamente)?
 
 1. PSI alto não é, por si, veredito de que o modelo piorou — olhar os painéis 4 e 5
    primeiro para saber **se** piorou.
-2. Se nenhuma feature isolada explica uma queda visível em taxa de aprovação ou
-   distribuição do score, a causa provável é concept drift — que nenhum PSI de feature
-   captura.
+2. Se nenhuma feature isolada acompanha uma queda visível em taxa de aprovação ou
+   distribuição do score, investigar mudança em `P(y|X)`, políticas e composição da
+   carteira; PSI de feature não distingue esses mecanismos.
 
 
 ### E. Um run `FAILED` no MLflow

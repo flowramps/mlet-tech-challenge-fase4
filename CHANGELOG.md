@@ -7,6 +7,18 @@ na própria etapa; os atuais estão no README.
 
 ## Não lançado
 
+### Adicionado
+- `docs/metodologia.md` formaliza a questão de pesquisa, as hipóteses H1–H4, os estimandos,
+  a hierarquia das conclusões e as ameaças às validades interna, de construto, externa e de
+  conclusão.
+
+### Alterado
+- A decomposição por cenários passa a ser descrita como análise fatorial de sensibilidade
+  dentro do simulador, sem extrapolação causal para uma carteira real. Os nomes históricos
+  de módulo e de chaves JSON são preservados por compatibilidade.
+- A auditoria por idade passa a tratar a regra dos 4/5 como triagem exploratória e deixa
+  explícito que razões brutas de recusa e risco não identificam efeito atribuível à idade.
+
 ### Corrigido
 - `/score` agora rejeita com HTTP 422 idade, renda, dependentes, razão de dívida e
   contadores de atraso fora do contrato antes de chamar o modelo. O schema Pydantic e o

@@ -1,8 +1,7 @@
-"""Atribuição causal por intervenção: a diferença entre "a renda mudou e o desempenho caiu,
-logo a renda causou" (correlação — três variáveis se deslocam juntas, nada distingue qual
-causou o quê) e "fixei tudo, movi só a renda, e medi a queda" (intervenção — o `do(·)` de
-verdade). Isso só é possível porque a Produção é simulada: controlamos o processo gerador,
-então podemos aplicar o drift a uma variável de cada vez.
+"""Análise fatorial de sensibilidade: distingue "a renda mudou e o desempenho caiu"
+(associação — três variáveis se deslocam juntas) de "no simulador, fixei as demais
+transformações, movi só a renda e medi a queda". O controle do processo gerador sustenta
+validade interna ao experimento, não identificação causal numa população real.
 
 Nenhum teste toca rede nem o arquivo real do dataset — só frames sintéticos e modelos
 falsos, seguindo a mesma convenção de `tests/drift/test_calibration.py` e

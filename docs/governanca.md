@@ -1,4 +1,4 @@
-# Governança — proteção de dados, equidade e causalidade
+# Governança — proteção de dados, equidade e limites de inferência
 
 | | |
 |---|---|
@@ -208,18 +208,20 @@ As duas colunas vêm de duas métricas formais diferentes, e **elas apontam em d
 opostas**:
 
 - **Razão de impacto adverso (regra dos 4/5)** — a taxa de aprovação de cada faixa sobre a
-  da faixa mais aprovada; abaixo de 0,80 é tratado como evidência de impacto adverso. É o
-  critério que reguladores aplicam a decisões de seleção. Por ele, **os jovens sofrem
-  impacto adverso**: 18-25 e 26-40 ficam abaixo do corte.
+  da faixa mais aprovada. O corte de 0,80 é usado aqui como **heurística exploratória de
+  triagem**, originada em procedimentos de seleção no contexto trabalhista dos Estados
+  Unidos; não constitui teste jurídico de discriminação em crédito no Brasil. Pelo corte,
+  as faixas 18-25 e 26-40 são sinalizadas para investigação adicional.
 - **Igualdade de oportunidade** — entre os que de fato inadimpliram, quantos o modelo
   identifica em cada faixa. Por ela, **quem sai pior são os idosos**: o modelo deixa passar
   metade dos inadimplentes 61+, contra pouco mais de um quinto dos 18-25.
 
-A regra dos 4/5 não desconta a diferença de risco real — e ela existe: a inadimplência
-observada cai de 8,64% (18-25) e 10,58% (26-40) para 3,22% (61+). Mas a desigualdade de
-desfecho é **maior** que a desigualdade de risco: entre os extremos, a recusa varia 4,7×
-e o risco real 2,7× (ver o model card). Parte da severidade com os jovens não é explicada
-pelo risco que eles de fato carregam.
+A regra dos 4/5 não condiciona a comparação ao risco observado — e ele difere entre as
+faixas: a inadimplência cai de 8,64% (18-25) e 10,58% (26-40) para 3,22% (61+). A recusa
+varia 4,7× entre os extremos e o risco observado, 2,7× (ver o model card), mas essas razões
+não são estimandos comparáveis e **não identificam** uma parcela de efeito atribuível à
+idade. Essa conclusão exigiria análise condicional, incerteza amostral e avaliação de
+confundimento; os números atuais são sinais descritivos para auditoria.
 
 **Uma única métrica de equidade daria o veredito de uma direção e esconderia a outra.** É
 por isso que as duas são publicadas em `metrics.json` a cada treino (`equidade.
@@ -255,7 +257,7 @@ como medir a equidade sobre um atributo ausente — está declarado como risco n
 
 ---
 
-## 5. Causalidade: por que o modelo decide o que decide, e o que muda isso
+## 5. Validade dos critérios e sensibilidade dentro do simulador
 
 O art. 20, §1º obriga o controlador a fornecer *"informações claras e adequadas a respeito
 dos critérios e dos procedimentos utilizados para a decisão automatizada"*, e a Lei do
@@ -270,32 +272,35 @@ linhas de crédito, de financiamentos imobiliários e de dependentes —, um cla
 XGBoost e um limiar de 0,5 sobre a probabilidade estimada de inadimplência nos dois anos
 seguintes.
 
-**O que os invalida, medido por intervenção.** Sob uma mudança econômica simulada de seis
-meses, o modelo perdeu 0,2079 de AUC-ROC. Deslocando uma causa de cada vez e mantendo as
-outras fixas (`credito.drift.causal`):
+**O que os invalida no cenário estudado.** Sob uma mudança econômica simulada de seis
+meses, o modelo perdeu 0,2079 de AUC-ROC. Ligando uma transformação de cada vez e mantendo
+as demais em intensidade zero (`credito.drift.causal`):
 
-| Causa isolada | Fração da queda |
+| Fator isolado no simulador | Fração da queda conjunta |
 |---|---:|
 | inflação da renda | 0,8% |
 | aumento do endividamento | 2,3% |
 | novo perfil de atraso | 6,8% |
 | **mudança na relação entre perfil e inadimplência (concept drift)** | **48,0%** |
-| interação entre as causas | 42,1% |
+| interação entre os fatores | 42,1% |
+
+Esses percentuais descrevem uma **análise fatorial de sensibilidade do processo gerador
+sintético**. Não estimam quanto cada mecanismo causaria numa carteira real. A definição
+formal, as hipóteses e as ameaças à validade estão em [`metodologia.md`](metodologia.md).
 
 Três consequências para governança:
 
-1. **Explicar uma decisão pela variável que "mais mudou" é explicar errado.** As duas
-   variáveis com maior deslocamento de distribuição (endividamento e renda) respondem
-   juntas por 3,1% da degradação. Uma explicação ao titular — ou a um revisor — que
-   apontasse para elas descreveria o sintoma visível, não a causa.
+1. **A variável que mais mudou não é necessariamente o fator de maior efeito sobre a
+   métrica.** No simulador, os efeitos isolados de endividamento e renda somam 3,1% da
+   queda conjunta. PSI descreve deslocamento da entrada, não explicação causal da decisão.
 2. **Os critérios podem deixar de valer sem que nada na entrada mude.** O concept drift não
    desloca nenhuma das dez variáveis: o mesmo perfil passa a ter outro risco. Por isso a
    informação sobre os critérios do art. 20, §1º precisa ser **versionada junto com o
    modelo e com o monitoramento** — os mesmos critérios, aplicados depois de uma mudança na
    relação entre perfil e risco, já não descrevem uma decisão bem fundamentada.
-3. **A atribuição causal não existe em produção.** Ela exige controlar o processo gerador,
-   o que só a simulação permite. Em produção, o que sobra é o alarme sem rótulo
-   (`docs/monitoring_plan.md`) para saber **se** o modelo degradou, e a degradação medida
+3. **A análise fatorial não identifica causalidade em produção.** Ela exige controlar o
+   processo gerador, o que só a simulação permite. Em produção, o que sobra é o alarme sem
+   rótulo (`docs/monitoring_plan.md`) para saber **se** o modelo degradou, e a degradação medida
    com rótulo atrasado para saber **quanto** — não **por quê**.
 
 O que o projeto **não** entrega: explicação de uma decisão individual (por que *este*

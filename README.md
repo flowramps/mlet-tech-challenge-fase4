@@ -17,7 +17,7 @@
 | **Baseline** | XGBoost com AUC-PR **0,3716** — 5,4× o acaso — e recall da classe positiva **0,6915** |
 | **Contrato** | seis regras; um lote adulterado é bloqueado com a contagem exata de cada defeito |
 | **Degradação silenciosa** | sob seis meses de mudança simulada, o recall cai **45,1%** e o poder discriminativo acima do piso, **59,2%** — sem uma única linha inválida |
-| **De onde ela vem** | concept drift responde por **48,0%** da queda; as duas variáveis de maior PSI, por **3,1%** |
+| **De onde ela vem** | no cenário sintético, o efeito isolado do concept drift corresponde a **48,0%** da queda conjunta; os efeitos isolados das duas variáveis de maior PSI somam **3,1%** |
 | **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); calibrada numa janela de 2.000 decisões, vira uma regra de alerta no Prometheus — vista disparando com tráfego do mês 6 |
 | **Privacidade** | sem CPF, mas **53,30%** das pessoas são únicas em idade + renda + dependentes; generalizar reduz a exposição a **0,01%** |
 | **Equidade** | duas métricas formais que **discordam**: os 4/5 apontam os jovens, a igualdade de oportunidade aponta os idosos |
@@ -30,7 +30,7 @@
 | **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
 | **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · [relatório HTML do mês 6](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/download/v1.1.0/drift_mes_06.html) | `make monitor` |
 | **Observabilidade e logs** (20%) | logs de execução do pipeline (sucesso e falha, por tarefa, com volume) e do drift centralizados; métricas de saúde, infraestrutura e alertas visíveis; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic LOTE=mes_06` · `make calibrar-alarme` · `make mlflow-up` |
-| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
+| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) · [`docs/metodologia.md`](docs/metodologia.md) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
 | **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
 | **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
 
@@ -47,7 +47,7 @@ flowchart LR
     end
     subgraph M["Monitoramento — make monitor"]
         F --> G["6 lotes de produção<br/>simulados"] --> H["PSI e KS próprios<br/>+ Evidently"] --> J{"Gate de drift"}
-        G --> K["Degradação real +<br/>atribuição causal"]
+        G --> K["Degradação medida +<br/>sensibilidade fatorial"]
         J --> L[("MLflow")]
         K --> L
     end
@@ -66,17 +66,36 @@ resto do documento sustenta com número.
 
 ## Índice
 
-1. [O problema](#o-problema)
-2. [Dados](#dados)
-3. [Contrato de dados](#contrato-de-dados)
-4. [Modelo baseline](#modelo-baseline)
-5. [Gate de qualidade](#gate-de-qualidade)
-6. [Monitoramento de drift](#monitoramento-de-drift)
-7. [Observabilidade em produção](#observabilidade-em-produção)
-8. [Governança e proteção de dados](#governança-e-proteção-de-dados)
-9. [Como executar](#como-executar)
-10. [Estrutura do projeto](#estrutura-do-projeto)
-11. [Roadmap](#roadmap)
+1. [Delimitação acadêmica](#delimitação-acadêmica)
+2. [O problema](#o-problema)
+3. [Dados](#dados)
+4. [Contrato de dados](#contrato-de-dados)
+5. [Modelo baseline](#modelo-baseline)
+6. [Gate de qualidade](#gate-de-qualidade)
+7. [Monitoramento de drift](#monitoramento-de-drift)
+8. [Observabilidade em produção](#observabilidade-em-produção)
+9. [Governança e proteção de dados](#governança-e-proteção-de-dados)
+10. [Como executar](#como-executar)
+11. [Estrutura do projeto](#estrutura-do-projeto)
+12. [Roadmap](#roadmap)
+
+---
+
+## Delimitação acadêmica
+
+Este repositório é um **experimento reprodutível de engenharia de ML**, não uma validação
+externa de um sistema de crédito. A questão investigada é se contratos, detectores de drift
+e sinais operacionais conseguem revelar degradação sob um processo gerador sintético
+conhecido. As conclusões numéricas valem para o dataset, o campeão e os cenários aqui
+especificados; não estimam, sem validação adicional, o efeito de mudanças econômicas sobre
+uma carteira real.
+
+O documento [`docs/metodologia.md`](docs/metodologia.md) formaliza a questão de pesquisa,
+as hipóteses H1–H4, os estimandos, a hierarquia das conclusões e as ameaças às validades
+interna, de construto, externa e de conclusão. Em particular, a decomposição por cenários é
+tratada como **análise fatorial de sensibilidade dentro do simulador**. Os nomes históricos
+`credito.drift.causal` e `atribuicao_causal_por_lote` são preservados apenas por
+compatibilidade; eles não autorizam inferência causal sobre uma população real.
 
 ---
 
@@ -110,8 +129,8 @@ da distinção, não uma coincidência de calibração.
 
 E há uma terceira pergunta, que nenhuma das duas responde: **"e daí?"** — quanto o
 deslocamento custa ao modelo que está servindo. PSI e KS são diagnóstico; a degradação
-medida é o alarme. A seção de monitoramento mostra, com a decomposição causal desta
-execução, que as duas respostas apontam para variáveis diferentes.
+medida é o alarme. A seção de monitoramento mostra, com a análise fatorial controlada desta
+execução, que as duas respostas apontam para fatores diferentes no cenário sintético.
 
 Mais duas perguntas fecham o problema. **"E sem rótulo?"** — em produção ninguém sabe quem
 inadimpliu até meses depois da decisão, então a degradação medida não serve de alarme ao
@@ -531,7 +550,7 @@ Cada mês aplica quatro transformações com intensidade progressiva `k = mês /
 | `aplicar_concept_drift` | `P(y\|X)` | 25% dos negativos de um segmento específico viram positivos |
 
 Três variáveis de *data drift* e um *concept drift*, em funções separadas — separadas não
-por organização, mas porque a atribuição causal mais adiante precisa ligar uma de cada vez.
+apenas por organização, mas porque a análise fatorial mais adiante liga uma de cada vez.
 
 **O mês 0 é idêntico à amostra de partida, byte a byte.** Não por tratamento especial:
 multiplicar por `1 + coef·0` é multiplicar por 1, injetar em `0,15·0` das linhas é injetar
@@ -611,13 +630,18 @@ código, sem forma de regenerá-los por comando, e apodreceram em silêncio quan
 mudou; agora saem da mesma execução que valida a monotonicidade, e ela falha se a reversão
 deixar de acontecer.
 
-### Onde a degradação nasce: atribuição causal por intervenção
+### Sensibilidade fatorial no simulador: de onde vem a degradação neste cenário
 
 As três variáveis se deslocam **juntas**, no mesmo calendário. Em dado observacional nada
-distingue qual delas causou a queda: coincidência temporal não é causa. A resposta por
-intervenção é outra — fixar tudo, mover **uma**, medir. É o que `drift/causal.py` faz, um
-cenário por vez, chamando exatamente as mesmas transformações que geraram os lotes (não uma
-reimplementação: se fosse outra, mediria um processo gerador diferente do que foi simulado).
+identifica qual delas causou a queda: coincidência temporal não é causa. Como o processo
+gerador sintético é conhecido, é possível fixar as demais transformações, mover **uma** e
+medir o efeito daquele fator dentro do simulador. É o que `drift/causal.py` faz, um cenário
+por vez, chamando exatamente as mesmas transformações que geraram os lotes.
+
+Essa é uma **análise fatorial de sensibilidade do experimento**, não uma estimativa causal
+sobre pessoas, decisões econômicas ou uma carteira real. O módulo conserva o nome histórico
+`causal.py` por compatibilidade; o alcance inferencial dos números é delimitado em
+[`docs/metodologia.md`](docs/metodologia.md).
 
 A métrica decomposta é **AUC-ROC**, não AUC-PR, pela razão da seção anterior: o piso da
 AUC-PR é a prevalência do lote, então decompô-la atribuiria parte do movimento à prevalência
@@ -649,16 +673,16 @@ primeiro:
 
 Três leituras, e a terceira é a que importa:
 
-**1. As duas variáveis de PSI mais alto causam 3,1% da degradação, juntas.** `DebtRatio`
-(PSI 0,5046, a mais alta da tabela) responde por 2,3%; `MonthlyIncome` (PSI 0,2634, a
-segunda) por 0,8%. Um painel que ordenasse as variáveis por PSI colocaria exatamente essas
-duas no topo do alarme.
+**1. Os efeitos isolados das duas variáveis de PSI mais alto somam 3,1% da queda conjunta
+no cenário sintético.** `DebtRatio` (PSI 0,5046, a mais alta da tabela) corresponde a 2,3%;
+`MonthlyIncome` (PSI 0,2634, a segunda), a 0,8%. Um painel que ordenasse as variáveis por
+PSI colocaria exatamente essas duas no topo do alarme.
 
-**2. O concept drift causa 48,0% — e o PSI por feature não consegue vê-lo.** Ele não move
-`P(X)`: as features saem idênticas, só o rótulo muda dentro de um segmento. Não existe PSI
-nenhum que acuse isso, porque não há nada deslocado nas entradas para acusar. Um sistema de
-monitoramento construído só sobre drift de feature ficaria cego para quase metade do
-problema, indefinidamente, sem nunca dar sinal de que está cego.
+**2. O efeito isolado do concept drift corresponde a 48,0% da queda conjunta neste
+simulador — e o PSI por feature não consegue vê-lo.** Ele não move `P(X)`: as features saem
+idênticas, só o rótulo muda dentro de um segmento. Não existe PSI que acuse essa alteração,
+porque não há deslocamento nas entradas. Dentro deste experimento, um monitor construído só
+sobre drift de feature ficaria cego para quase metade da queda medida.
 
 **3. Os 42,1% de interação não pertencem a variável nenhuma.** A soma dos quatro efeitos
 isolados (0,1203) não chega ao efeito conjunto (0,2079); a diferença é o que as
@@ -667,7 +691,8 @@ análise — atribuir 100% da queda à soma das partes seria mais simples de esc
 menos honesto do que é o número.
 
 A conclusão prática, que o resumo do gate carrega embutida para viajar junto com o
-relatório: **um sistema que alarma sobre drift de feature aponta para a coisa errada.**
+relatório: **um sistema que alarma apenas sobre drift de feature não identifica, por si,
+qual fator mais afetou o desempenho.**
 Drift é diagnóstico — diz **onde** a distribuição se moveu. Degradação é o alarme — diz
 **quanto** isso custou. As duas perguntas têm respostas diferentes nesta execução, e tratar
 a primeira como se fosse a segunda leva a investigar renda e endividamento enquanto metade
@@ -979,12 +1004,13 @@ afirmando, no próprio relatório, uma medição que ele nunca fez: ele não tem
 campeão nem ao dado real. Os números moram onde foram medidos — em
 `reports/monitoramento.json`, e nesta seção.
 
-### A condição que torna a análise causal possível — e o que fazer sem ela
+### O alcance da análise fatorial — e o que fazer fora do simulador
 
-A decomposição por intervenção só existe porque a Produção aqui é **simulada** e o processo
+A decomposição por cenários só existe porque a Produção aqui é **simulada** e o processo
 gerador é conhecido e controlável. Gerar o cenário "só a renda se moveu, tudo o mais fixo"
 exige poder gerar esse cenário. **Produção real não oferece isso**: não há como pedir ao
-mundo que inflacione a renda mantendo o endividamento parado, e nunca haverá.
+mundo que inflacione a renda mantendo o endividamento parado. Portanto, a validade é
+interna ao processo gerador especificado, não transportável automaticamente ao mundo real.
 
 O substituto disponível seria **importância por permutação** sobre o lote degradado:
 embaralhar uma coluna de cada vez no lote do mês 6 e medir quanto a métrica do campeão piora
@@ -998,15 +1024,14 @@ a mais. É mais fraco, em três frentes:
   nunca geraria (renda alta com endividamento de renda baixa), e a métrica medida nesse
   dado impossível não é a métrica de nenhum cenário real.
 - **Não enxerga o concept drift.** Permutar features não diz nada sobre uma mudança em
-  `P(y|X)` — e é dela que vêm 48,0% da queda nesta execução. O termo de interação, 42,1%,
-  também não tem onde aparecer numa análise coluna a coluna.
+  `P(y|X)` — e, nesta trajetória sintética, seu efeito isolado corresponde a 48,0% da
+  queda conjunta. O termo de interação, 42,1%, também não aparece numa análise coluna a
+  coluna.
 
-Ou seja: a análise mais forte é a que este repositório consegue fazer **porque controla o
-gerador**, e a que sobraria em produção deixaria de fora os dois maiores termos da
-decomposição. A conclusão de que drift de feature aponta para a coisa errada depende de
-poder intervir — e em produção, sem essa possibilidade, a resposta certa não é trocar por um
-substituto mais fraco: é **medir a degradação diretamente**, com rótulo atrasado, e tratar o
-PSI como o que ele é. Diagnóstico, não alarme.
+Ou seja: o repositório consegue uma análise fatorial mais informativa **porque controla o
+gerador**, mas esse controle também limita sua validade externa. Em produção, a resposta
+não é promover a sensibilidade do simulador a verdade causal: é **medir a degradação
+diretamente**, com rótulo atrasado, e tratar o PSI como o que ele é. Diagnóstico, não alarme.
 
 ---
 
@@ -1120,9 +1145,9 @@ arquivo** — nada clicado à mão, os dois sobem já configurados a partir de
 dashboard: tráfego e taxa de erro primeiro, depois latência, depois os dois alarmes
 (distribuição do score e taxa de aprovação), e só **depois** deles o PSI por feature —
 consultado como diagnóstico de origem, nunca como gatilho. Um layout que colocasse o PSI
-no topo ensinaria o oposto do que a Etapa anterior mediu: que as features de maior PSI
-explicam só 3,1% da degradação real, enquanto o concept drift — invisível a qualquer PSI
-— explica 48,0%.
+no topo confundiria deslocamento com impacto: no cenário sintético, os efeitos isolados das
+features de maior PSI somam 3,1% da queda conjunta, enquanto o efeito isolado do concept
+drift — invisível a qualquer PSI — corresponde a 48,0%.
 
 O painel de PSI por feature é texto, não gráfico: a métrica só existe em lote (MLflow),
 nunca por requisição na API — decisão declarada no próprio painel, não escondida.
@@ -1220,10 +1245,9 @@ ela seja humana**: a expressão *"por pessoa natural"* do texto original foi ret
 e o parágrafo que a reintroduziria foi vetado em 2019. Este projeto adota revisão humana
 mesmo assim, como decisão declarada e mais rigorosa que a lei.
 
-**Causalidade.** A decomposição por intervenção da seção de monitoramento vira critério de
-governança: explicar uma decisão pela variável que mais se deslocou é explicar errado (as
-duas de maior PSI respondem por 3,1% da degradação), e os critérios podem deixar de valer
-sem que nenhuma entrada mude (concept drift, 48,0%) — por isso a informação sobre critérios
+**Validade dos critérios.** A análise fatorial da seção de monitoramento impede confundir a
+variável que mais se deslocou com o fator de maior efeito no simulador. Os critérios também
+podem deixar de valer sem que nenhuma entrada mude. Por isso a informação sobre critérios
 que o art. 20, §1º exige precisa ser versionada junto com o modelo e o monitoramento.
 
 **Registro de decisão: o direito de revisão com objeto.** Cada `/score` devolve um
@@ -1293,7 +1317,7 @@ E `make monitor` deixa em `reports/`:
 - `drift_mes_01.html` a `drift_mes_06.html` — um relatório do Evidently por lote, 4,72 MB
   cada;
 - `monitoramento.json` — o consolidado legível por máquina: métricas do campeão por lote,
-  PSI e KS por feature nas duas implementações, a decomposição causal de cada mês e o
+  PSI e KS por feature nas duas implementações, a análise fatorial de cada mês e o
   veredito do gate.
 
 `reports/` é ignorado pelo git (28 MB de HTML por execução, reproduzíveis em cerca de 19 s); o
@@ -1453,23 +1477,25 @@ Dívida declarada é maturidade; dívida escondida que o leitor descobre é defe
 - **A precisão da classe positiva é 0,2350** — cerca de três em cada quatro recusas do
   modelo seriam bons pagadores. Aceitável dado o custo assimétrico, mas é um número que
   precisa entrar em qualquer discussão de adoção, não ser escondido atrás do recall.
-- **O recorte etário mostra assimetria não explicada inteiramente pelo risco** (4,7× de
-  variação na recusa contra 2,7× no risco real). Está medido, não está tratado.
+- **O recorte etário mostra assimetria descritiva** (4,7× de variação na recusa contra
+  2,7× no risco observado). As razões não são estimandos comparáveis e não isolam um efeito
+  da idade; a auditoria condicional e a incerteza por grupo ainda não foram feitas.
 - **O gate compara contra o incumbente pelos metadados gravados no `model.joblib`**, não
   por uma reavaliação do incumbente sobre o teste corrente. Se a partição mudar, a
   comparação passa a ser entre números medidos sobre conjuntos diferentes.
 
 E as que a camada de monitoramento acrescenta:
 
-- **A Produção é simulada, não observada.** Todo número de degradação e toda a decomposição
-  causal vêm de um processo gerador que este repositório escreveu. A simulação é plausível e
+- **A Produção é simulada, não observada.** Todo número de degradação e toda a análise
+  fatorial vêm de um processo gerador que este repositório escreveu. A simulação é plausível e
   calibrada contra o dado real — o segmento de risco emergente foi escolhido por já ter o
   dobro da taxa de inadimplência do resto do seu subgrupo na Referência —, mas ela não é
   evidência sobre o mundo. É evidência sobre o instrumento: mostra que a camada detecta e
   quantifica o tipo de deslocamento que ela foi construída para detectar.
-- **A atribuição causal por intervenção não existe em produção.** Ver a seção dedicada: sem
-  controle do gerador, o substituto disponível deixa de fora os dois maiores termos da
-  decomposição medida aqui.
+- **A sensibilidade fatorial não identifica causalidade em produção.** Ver a seção dedicada:
+  sem controle do gerador, o substituto disponível deixa de fora os dois maiores termos da
+  decomposição medida aqui. Mesmo dentro do simulador, os resultados são condicionais às
+  transformações, ao campeão e à trajetória escolhidos.
 - **A degradação é medida com rótulo instantâneo.** A simulação entrega o rótulo do lote
   junto com as features. Em crédito o rótulo demora — "dificuldade grave nos próximos dois
   anos" só é observável dois anos depois —, e é justamente esse atraso que torna a
@@ -1479,9 +1505,9 @@ E as que a camada de monitoramento acrescenta:
   vezes mais folgada que o p95 do acaso. A decisão de manter a convenção é deliberada e
   está argumentada, mas um limiar intermediário — informado pela nula e mais apertado que a
   convenção — não foi calibrado.
-- **Não há detecção de concept drift sem rótulo.** A queda de 48,0% atribuída ao concept
-  drift só é visível porque a degradação é medida contra o rótulo verdadeiro. Sem rótulo,
-  nenhum instrumento desta camada acusaria essa metade do problema — e é a metade maior.
+- **Não há detecção de concept drift sem rótulo.** O efeito isolado de 48,0% medido no
+  cenário sintético só é visível porque a degradação é calculada contra o rótulo verdadeiro.
+  Sem rótulo, nenhum instrumento desta camada acusaria essa mudança em `P(y|X)`.
 - **A janela é fixa em seis lotes, e o gate lê os seis de uma vez.** Um monitor de produção
   recebe um lote por vez, indefinidamente, e precisaria de uma janela deslizante e de
   persistência entre execuções. A correção de múltiplos testes já é por lote, então a

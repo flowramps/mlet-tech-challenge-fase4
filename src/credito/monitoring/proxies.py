@@ -2,15 +2,16 @@
 
 **Por que este módulo existe separado de `drift/`.** A Etapa 2 mediu duas coisas que
 juntas decidem como um alarme de produção precisa ser construído. Primeiro
-(`credito.drift.causal.atribuir_degradacao`, números publicados no README): as duas
-features de maior PSI — `MonthlyIncome` (0,2634) e `DebtRatio` (0,5046) — causam juntas
-3,1% da degradação medida contra o campeão; o concept drift isolado, que nenhum PSI de
-feature enxerga porque `P(X)` não se move nele, causa 48,0%. Um painel que dispara no PSI
-mais alto aponta consistentemente para a variável errada. Segundo: a simulação da Etapa 2
-tem rótulo porque nós controlamos o gerador — um sistema real não sabe quem inadimpliu até
-meses depois da decisão de crédito, e é exatamente nesse intervalo que a degradação
-silenciosa acontece. `drift/` mede o que só é mensurável em laboratório (PSI de feature
-contra uma Referência, atribuição causal contra o rótulo real). Este módulo mede só o que
+(`credito.drift.causal.atribuir_degradacao`, números publicados no README): no simulador,
+os efeitos isolados das duas features de maior PSI — `MonthlyIncome` (0,2634) e
+`DebtRatio` (0,5046) — somam 3,1% da queda conjunta; o efeito isolado do concept drift,
+que nenhum PSI de feature enxerga porque `P(X)` não se move nele, corresponde a 48,0%.
+Logo, PSI alto não identifica o fator de maior efeito sobre o desempenho. Segundo: a
+simulação da Etapa 2 tem rótulo porque nós controlamos o gerador — um sistema real não
+sabe quem inadimpliu até meses depois da decisão de crédito, e é exatamente nesse intervalo
+que a degradação silenciosa acontece. `drift/` mede o que só é mensurável em laboratório
+(PSI de feature
+contra uma Referência, sensibilidade fatorial contra o rótulo real). Este módulo mede só o que
 seria mensurável em produção — as entradas que o modelo recebeu e o que ele devolveu — e
 por isso não pode importar a coluna de rótulo em lugar nenhum: fazer isso apagaria a
 distinção que o módulo existe para provar.

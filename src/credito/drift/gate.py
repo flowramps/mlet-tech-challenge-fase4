@@ -65,9 +65,9 @@ vários.
 
 **Drift de feature é diagnóstico, não o alarme.** PSI e KS medem o deslocamento da
 distribuição de entrada (P(X)); não medem, por si, quanto esse deslocamento custa ao
-campeão. A atribuição causal por intervenção (`credito.drift.causal.atribuir_degradacao`)
-existe precisamente para medir esse custo — isolando quanto cada variável desloca o
-desempenho quando as demais ficam fixas —, e mediu, contra o campeão real desta etapa, que
+campeão. A análise fatorial do simulador (`credito.drift.causal.atribuir_degradacao`)
+mede esse efeito no processo gerador controlado — isolando quanto cada transformação
+desloca o desempenho quando as demais ficam fixas —, e mediu, contra o campeão desta etapa, que
 a feature de maior PSI não é a que mais move a degradação (a decomposição está publicada no
 README, não repetida aqui). Um leitor que visse só a tabela de PSI seria
 levado a concluir o oposto. `GateDeDrift.resumo` carrega essa ressalva qualitativa
@@ -107,9 +107,9 @@ _NOTA_DIAGNOSTICO = (
     "Nota: PSI e KS medem o deslocamento da distribuição de entrada (P(X)), não o custo "
     "desse deslocamento para o campeão. Este relatório é diagnóstico: aponta ONDE a "
     "distribuição se moveu, não QUANTO isso custou ao modelo — e a feature de PSI mais "
-    "alto não é, por isso, a causa mais provável da degradação. Quem mede o custo real é "
-    "credito.drift.causal.atribuir_degradacao (decomposição por variável, por "
-    "intervenção) e credito.drift.calibration.degradacao_por_lote (a consequência "
+    "alto não identifica, por isso, o fator de maior efeito sobre a degradação. Quem mede "
+    "a sensibilidade dentro do simulador é credito.drift.causal.atribuir_degradacao "
+    "(cenários fatoriais) e credito.drift.calibration.degradacao_por_lote (a consequência "
     "agregada por lote)."
 )
 
@@ -183,8 +183,8 @@ class GateDeDrift:
     def resumo(self) -> str:
         """A narrativa que transforma a tabela de severidades em texto legível — sem ela o
         relatório é um conjunto de números que só quem conhece as bandas sabe ler. Sempre
-        termina com `_NOTA_DIAGNOSTICO`, para que a ressalva "PSI alto não é o mesmo que
-        causa mais provável" viaje junto com o relatório, não só com quem leu o
+        termina com `_NOTA_DIAGNOSTICO`, para que a ressalva "PSI alto não identifica o
+        fator de maior efeito" viaje junto com o relatório, não só com quem leu o
         docstring do módulo."""
         linhas = [self.mensagem]
         for cruzamento in self.cruzamentos:
