@@ -1513,6 +1513,7 @@ docs/images/                   Prints do relatório de drift, do MLflow e do Gra
 notebooks/01_eda.ipynb         Análise exploratória: qualidade, viés de seleção, poder preditivo, idade
 notebooks/03_baseline.ipynb    Baseline: piso sem modelo, candidatos, calibração, limiar, overfitting
 notebooks/04_equidade.ipynb    Equidade do modelo publicado: incerteza, condicional, contrafactual, políticas
+notebooks/05_explicabilidade.ipynb  Explicação das decisões: SHAP global, forma de cada variável, casos individuais
 notebooks/02_analise_causal.ipynb  Análise causal: idade e risco (mediação, seleção) e causas da degradação
 tests/                         Suíte espelhando a estrutura de src/
 ```
@@ -1618,13 +1619,17 @@ E as que a camada de governança acrescenta — detalhe em
   as opções de mitigação, avaliadas; nenhuma foi aplicada ao campeão.
 - **Viés por atributo ausente não é mensurável.** Renda e dependentes podem carregar sinal de
   gênero ou região, que a Referência não tem.
-- **A explicação é global, não por decisão.** Os critérios do modelo e o que os invalida
-  estão documentados; por que *um* pedido específico foi recusado, não.
+- **A explicação individual existe como análise, não no produto.**
+  `notebooks/05_explicabilidade.ipynb` explica cada decisão pelos fatores que pesaram contra
+  e a favor (SHAP exato do XGBoost), mas nem a API nem `make consultar-decisao` a devolvem
+  ainda. Com o modelo atual, a idade estaria entre os três principais motivos de 86% das
+  recusas de 18-25 anos.
 
 ### Continuidade
 
-Sobre esta base, na ordem em que um depende do outro: a **explicação individual** sobre o
-registro de decisão, que já guarda as entradas e o modelo de cada decisão; a **mitigação de
-viés** escolhida entre as opções medidas, passando pelo mesmo gate de promoção de qualquer
-candidato; e o **relatório de impacto à proteção de dados** (LGPD, art. 38), que
+Sobre esta base, na ordem em que um depende do outro: a **explicação individual no
+produto**, gerada sobre o registro de decisão com o método validado em
+`notebooks/05_explicabilidade.ipynb`; a **mitigação de viés**, se retomada, pela alternativa
+registrada na governança (treinar com a idade e neutralizá-la na decisão), passando pelo
+mesmo gate de promoção de qualquer candidato; e o **relatório de impacto à proteção de dados** (LGPD, art. 38), que
 `docs/governanca.md` já estrutura.

@@ -15,6 +15,13 @@ na própria etapa; os atuais estão no README.
   e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
   sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
   no grupo opcional `notebooks`.
+- `notebooks/05_explicabilidade.ipynb`: explicação das decisões do modelo publicado com o
+  SHAP exato do XGBoost, válido também para a probabilidade corrigida. O corte de 0,5 equivale
+  a recusar quem tem risco acima da média (6,94%); o uso do rotativo responde por 30% do que
+  move as notas; a idade age em degraus aos 55 e aos 64 anos e aparece entre os três
+  principais motivos de 86% das recusas de 18-25 anos; renda muito baixa reduz o risco, um
+  defeito de registro aprendido como sinal. `make explicabilidade` reexecuta. A governança
+  deixa de dizer que a explicação individual não é entregue.
 - `notebooks/04_equidade.ipynb`: auditoria de equidade do modelo publicado no teste, nas
   quatro faixas etárias. Bootstrap confirma a razão 4/5 abaixo de 0,80 para 18-40 e o recall
   menor de 61+; entre bons pagadores, 18-25 é recusado 4,6 vezes mais que 61+ (28,6% contra

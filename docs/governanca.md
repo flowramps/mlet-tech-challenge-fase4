@@ -345,10 +345,29 @@ Três consequências para governança:
    rótulo (`docs/monitoring_plan.md`) para saber **se** o modelo degradou, e a degradação medida
    com rótulo atrasado para saber **quanto** — não **por quê**.
 
-O que o projeto **não** entrega: explicação de uma decisão individual (por que *este*
-pedido foi recusado). Os critérios acima são globais. O registro de decisão (seção 3) já
-guarda tudo o que essa explicação exigiria — as entradas e o modelo exato —; a explicação
-em si é a continuidade natural dele.
+**A explicação de uma decisão individual** (por que *este* pedido foi recusado) está
+demonstrada em [`notebooks/05_explicabilidade.ipynb`](../notebooks/05_explicabilidade.ipynb),
+com os valores SHAP que o próprio XGBoost calcula. Eles dividem a nota de cada pedido entre
+as variáveis, de forma exata, e valem também para a probabilidade corrigida pela fórmula de
+prior: cada decisão pode ser explicada pelos fatores que pesaram contra e a favor, em
+linguagem comum — por exemplo, *"pesaram contra: usa 100% do limite do rotativo, renda de
+1.640, tem 25 anos; pesou a favor: nenhum atraso"*. O corte de 0,5 do modelo publicado
+equivale a recusar quem tem risco estimado acima da média da base (6,94%).
+
+Globalmente, o modelo se apoia no comportamento de crédito: o uso do rotativo responde por
+30% do que move as notas, e os atrasos, por 33%. Dois comportamentos pedem atenção:
+
+- **a idade é a quarta variável mais usada** (9,3%) e age em degraus, aos 55 e aos 64 anos.
+  Ela aparece entre os três principais motivos de **86% das recusas de 18-25 anos** (91% entre
+  bons pagadores recusados): uma explicação individual dada a um jovem recusado, na maioria
+  dos casos, citaria a idade. A alternativa da seção 4 — treinar com a idade e neutralizá-la
+  na decisão — a retiraria das explicações;
+- **renda declarada muito baixa reduz o risco** no modelo: o defeito de registro que a análise
+  exploratória mede (renda zero ou quase zero com inadimplência abaixo da média) foi aprendido
+  como sinal.
+
+O que falta é levar a explicação ao produto: o registro de decisão (seção 3) já guarda as
+entradas e o modelo exato de cada decisão, e é sobre ele que a explicação seria gerada.
 
 ---
 
@@ -358,7 +377,7 @@ em si é a continuidade natural dele.
 |---|---|---|---|
 | Confirmação e acesso | LGPD, art. 18, I e II; Lei nº 12.414, art. 5º, II | No sistema de origem, que detém a identidade e o `id_decisao` de cada pedido; com ele, `make consultar-decisao` devolve o que o serviço de scoring gravou | — |
 | Correção | LGPD, art. 18, III; Lei nº 12.414, art. 5º, III | Correção na origem e nova pontuação; o contrato de dados (`credito.contracts`) já bloqueia o dado inválido antes do modelo | — |
-| Informação sobre critérios | LGPD, art. 20, §1º; Lei nº 12.414, art. 5º, IV | Este documento, a seção 5 e o model card | Explicação por decisão individual |
+| Informação sobre critérios | LGPD, art. 20, §1º; Lei nº 12.414, art. 5º, IV | Este documento, a seção 5, o model card e, por decisão, `notebooks/05_explicabilidade.ipynb` | Explicação individual gerada no produto, sobre o registro de decisão |
 | **Revisão de decisão automatizada** | LGPD, art. 20; Lei nº 12.414, art. 5º, VI | Registro de decisão (seção 3) e reconstrução por `make consultar-decisao` — ver abaixo | Fluxo de revisão humana do controlador |
 | Oposição | LGPD, art. 18, §2º | Pelo controlador, no canal do encarregado | — |
 | Petição à autoridade | LGPD, art. 18, §1º | Direito do titular, independente da arquitetura | — |
@@ -395,10 +414,12 @@ O que torna essa revisão possível hoje e o que ainda falta:
 O que esta etapa deixa especificado para a operação em produção, na ordem em que um
 depende do outro:
 
-1. **Explicação individual** sobre o registro de decisão, que já guarda as entradas e o
-   modelo exato de cada decisão.
-2. **Mitigação de viés** escolhida entre as opções da seção 4, aplicada com as duas
-   métricas medidas antes e depois, e passando pelo mesmo gate de promoção de qualquer
-   candidato.
+1. **Explicação individual no produto**, gerada sobre o registro de decisão, que já guarda
+   as entradas e o modelo exato de cada decisão. O método está validado em
+   `notebooks/05_explicabilidade.ipynb`; falta expô-lo, por exemplo em `make
+   consultar-decisao`.
+2. **Mitigação de viés, se retomada**, pela alternativa registrada na seção 4 — treinar com
+   a idade e neutralizá-la na decisão —, medida antes de adotada e passando pelo mesmo gate
+   de promoção de qualquer candidato.
 3. **Relatório de impacto à proteção de dados** (art. 5º, XVII; art. 38), que este
    documento já estrutura: tipos de dados, metodologia, riscos medidos e mitigação.
