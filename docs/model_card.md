@@ -145,6 +145,10 @@ afirmação sem evidência.
 | 41-60 | 11.302 | 7,24% | 21,62% | 78,38% | 0,6822 | 0,304 |
 | 61+ | 6.397 | 3,22% | 7,50% | 92,50% | 0,5000 | 0,166 |
 
+A coluna **Prob. média** é a saída do modelo, inflada pelo peso de classe (ver Limitações):
+não deve ser comparada com a coluna de positivos reais. A auditoria completa por faixa, com
+incerteza e comparação condicional, está em `notebooks/04_equidade.ipynb`.
+
 **Como ler.** A taxa de recusa cai monotonicamente com a idade. A taxa de inadimplência
 real cai entre os extremos (8,64% → 3,22%), mas **não monotonicamente** — a faixa 26-40 tem o
 maior risco da tabela (10,58%) e a segunda maior recusa. Parte da diferença de tratamento
@@ -222,12 +226,27 @@ as limitações abaixo e [`metodologia.md`](metodologia.md).
   `MonthlyIncome` e é descartado. O modelo nunca viu esse perfil, e esse perfil existe em
   produção. Hoje o contrato o bloquearia em vez de pontuá-lo — o que é seguro, mas não é
   atendimento. Tratar essa fatia exige política de imputação ou modelo separado.
-- **Limiar fixo em 0,5**, não otimizado para a assimetria de custo entre aprovar um
-  inadimplente e recusar um bom pagador. O ponto de operação atual foi herdado do default,
-  não escolhido por curva de custo.
-- **Probabilidades não calibradas.** O modelo ordena risco bem (AUC-ROC 0,8421); não há
-  garantia de que uma saída de 0,30 corresponda a 30% de inadimplência observada. Não usar
-  a saída como probabilidade absoluta sem calibração.
+- **A premissa de custo do limiar é declarada, não validada com custos reais.** Com
+  probabilidade calibrada, a regra de decisão que minimiza o custo esperado é recusar quando
+  a chance de inadimplência passa de $1/(1+k)$, onde $k$ é quanto custa aprovar um
+  inadimplente em relação a recusar um bom pagador. O corte de 0,5 do modelo publicado
+  equivale a 6,94% de probabilidade corrigida (ver o item seguinte) e, portanto, a
+  **$k \approx 13{,}4$: o projeto assume que um inadimplente aprovado custa o mesmo que
+  13,4 bons pagadores recusados.** Esse valor não foi escolhido por uma conta de negócio: é a
+  proporção entre adimplentes e inadimplentes do treino, que o peso de classe embute no
+  corte. A base não tem valor emprestado, taxa nem recuperação, então $k$ não pode ser
+  medido aqui; ele fica declarado como premissa do projeto. Um $k$ calculado com custos
+  reais mudaria o corte — por exemplo, $k = 6$ levaria a recusar acima de 14% e a pegar
+  cerca de 60% dos inadimplentes, contra cerca de 75% com o $k$ atual
+  (`notebooks/03_baseline.ipynb`, seção 5).
+- **Probabilidades não calibradas — infladas em cerca de 4 vezes.** O modelo ordena risco
+  bem (AUC-ROC 0,8421), mas o peso de classe (`scale_pos_weight`) infla a saída: no teste, o
+  risco médio previsto é de cerca de 29% para uma inadimplência real de 6,9%
+  (`notebooks/03_baseline.ipynb`, seção 4). A API expõe esse número como
+  `probabilidade_inadimplencia`. A correção de prior $p' = p / (p + w(1-p))$, com $w$ o peso
+  de classe do modelo, restaura a calibração sem retreinar e sem mudar nenhuma decisão; o
+  corte de 0,5 corresponde a 6,94% de probabilidade corrigida. Não usar a saída como
+  probabilidade absoluta sem essa correção.
 - **Hiperparâmetros são padrões conservadores de baseline**, sem busca. Deliberado: só
   assim a comparação entre os dois candidatos é evidência, e não um vencedor ajustado a
   dedo.

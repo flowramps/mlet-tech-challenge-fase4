@@ -8,6 +8,44 @@ na própria etapa; os atuais estão no README.
 ## Não lançado
 
 ### Adicionado
+- `notebooks/01_eda.ipynb`: análise exploratória feita só sobre o arquivo de dados —
+  qualidade do bruto e as regras de limpeza derivadas dela (conferidas contra
+  `credito.data.prepare.limpar`), viés de seleção do descarte por renda ausente (quem não
+  declara renda inadimple 5,61% contra 6,95%), outliers por plausibilidade, Information Value
+  e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
+  sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
+  no grupo opcional `notebooks`.
+- Premissa de custo do limiar declarada no model card, na governança e no README: o corte de
+  0,5 do modelo publicado equivale a recusar acima de 6,94% de probabilidade corrigida e,
+  portanto, a assumir que um inadimplente aprovado custa o mesmo que 13,4 bons pagadores
+  recusados. O valor vem da proporção entre as classes embutida pelo peso de classe, não de
+  custos reais, que a base não contém.
+- `notebooks/05_explicabilidade.ipynb`: explicação das decisões do modelo publicado com o
+  SHAP exato do XGBoost, válido também para a probabilidade corrigida. O corte de 0,5 equivale
+  a recusar quem tem risco acima da média (6,94%); o uso do rotativo responde por 30% do que
+  move as notas; a idade age em degraus aos 55 e aos 64 anos e aparece entre os três
+  principais motivos de 86% das recusas de 18-25 anos; renda muito baixa reduz o risco, um
+  defeito de registro aprendido como sinal. `make explicabilidade` reexecuta. A governança
+  deixa de dizer que a explicação individual não é entregue.
+- `notebooks/04_equidade.ipynb`: auditoria de equidade do modelo publicado no teste, nas
+  quatro faixas etárias. Bootstrap confirma a razão 4/5 abaixo de 0,80 para 18-40 e o recall
+  menor de 61+; entre bons pagadores, 18-25 é recusado 4,6 vezes mais que 61+ (28,6% contra
+  6,2%); o modelo é aproximadamente calibrado por faixa; trocar só a idade por 68 anos aprovaria
+  57% dos jovens recusados; três políticas de limiar por faixa medidas. `make equidade`
+  reexecuta.
+- `notebooks/03_baseline.ipynb`: piso sem modelo (regra de duas condições: recall 0,39 com
+  precisão 0,38), cinco candidatos com bootstrap pareado, curvas PR e ROC, calibração, limiar
+  por margem de custo, matriz de confusão e overfitting. Um gradient boosting sem ajuste nem
+  peso supera o XGBoost publicado (AUC-PR 0,393 contra 0,370 no teste); o peso de classe só
+  desloca o limiar e infla as probabilidades do modelo publicado em cerca de 4 vezes.
+  `make baseline` reexecuta.
+- `notebooks/02_analise_causal.ipynb`: análise causal com grafo explícito. Parte 1, idade e
+  risco: a seleção da limpeza atenua a razão de risco entre 18-25 e 61+ (3,73× para 3,05×), e
+  73% a 80% do excesso de risco de 26-60 anos acompanha o comportamento de crédito, sobretudo
+  o uso do rotativo. Parte 2, degradação: com modelo e choques próprios (inflação, novos
+  perfis, crise), só a crise degrada o modelo (AUC-ROC 0,852 para 0,730), responde por cerca
+  de 100% da queda no fatorial 2³ e não move PSI nem taxa de aprovação. `make causal`
+  reexecuta.
 - `docs/metodologia.md` formaliza a questão de pesquisa, as hipóteses H1–H4, os estimandos,
   a hierarquia das conclusões e as ameaças às validades interna, de construto, externa e de
   conclusão.

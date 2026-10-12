@@ -1,7 +1,7 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
 .PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
-	validar-proxies auditar-privacidade calibrar-alarme consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
+	validar-proxies auditar-privacidade calibrar-alarme eda baseline causal equidade explicabilidade consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -51,6 +51,21 @@ consultar-decisao: ## Reconstrói uma decisão para revisão: make consultar-dec
 
 expurgar-decisoes: ## Remove do registro as decisões que passaram do prazo de retenção
 	poetry run python scripts/expurgar_decisoes.py
+
+eda:              ## Reexecuta a análise exploratória e grava as saídas no notebook (requer `poetry install --with notebooks`)
+	poetry run python -m nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb
+
+baseline:         ## Reexecuta o notebook de baseline: piso, candidatos e calibração (requer `poetry install --with notebooks`)
+	poetry run python -m nbconvert --to notebook --execute --inplace notebooks/03_baseline.ipynb
+
+causal:           ## Reexecuta a análise causal (~5 min; requer `poetry install --with notebooks`)
+	poetry run python -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=1800 notebooks/02_analise_causal.ipynb
+
+equidade:         ## Reexecuta a auditoria de equidade do modelo publicado (requer `make train` e `poetry install --with notebooks`)
+	poetry run python -m nbconvert --to notebook --execute --inplace notebooks/04_equidade.ipynb
+
+explicabilidade:  ## Reexecuta a explicação das decisões do modelo publicado (requer `make train` e `poetry install --with notebooks`)
+	poetry run python -m nbconvert --to notebook --execute --inplace notebooks/05_explicabilidade.ipynb
 
 reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, alarme, privacidade)
 	$(MAKE) data

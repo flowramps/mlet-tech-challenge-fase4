@@ -27,10 +27,10 @@
 
 | Critério (peso) | O que se pede | Onde está | Como verificar |
 |---|---|---|---|
-| **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
-| **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · [relatório HTML do mês 6](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/download/v1.1.0/drift_mes_06.html) | `make monitor` |
+| **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` · [`notebooks/01_eda.ipynb`](notebooks/01_eda.ipynb) (defeitos medidos e regras derivadas, seção 2) | `make demo-contrato` · `make eda` |
+| **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · [relatório HTML do mês 6](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/download/v1.1.0/drift_mes_06.html) · [`notebooks/02_analise_causal.ipynb`](notebooks/02_analise_causal.ipynb) (causas da degradação, parte 2) | `make monitor` · `make causal` |
 | **Observabilidade e logs** (20%) | logs de execução do pipeline (sucesso e falha, por tarefa, com volume) e do drift centralizados; métricas de saúde, infraestrutura e alertas visíveis; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic LOTE=mes_06` · `make calibrar-alarme` · `make mlflow-up` |
-| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) · [`docs/metodologia.md`](docs/metodologia.md) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
+| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) · [`docs/metodologia.md`](docs/metodologia.md) · [`notebooks/02_analise_causal.ipynb`](notebooks/02_analise_causal.ipynb) (causalidade) · [`notebooks/04_equidade.ipynb`](notebooks/04_equidade.ipynb) (vieses) · [`notebooks/05_explicabilidade.ipynb`](notebooks/05_explicabilidade.ipynb) (explicação por decisão) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `make equidade` · `make explicabilidade` |
 | **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
 | **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
 
@@ -213,6 +213,13 @@ schema de tipos deixa passar.
 *(Todos os números acima medidos sobre `data/raw/GiveMeSomeCredit.arff` nesta versão do
 repositório.)*
 
+A análise exploratória completa — feita só sobre o arquivo de dados, antes de qualquer
+modelo: qualidade do bruto, as regras de limpeza que saem dela, o perfil de quem a limpeza
+descarta, distribuições, outliers, poder preditivo de cada variável (Information Value),
+correlações, a relação entre idade e risco e o que a base não permite responder — está em
+[`notebooks/01_eda.ipynb`](notebooks/01_eda.ipynb), salva com as saídas. `make eda` a
+reexecuta (requer `poetry install --with notebooks`).
+
 ### Duas propriedades que custaram a ser obtidas
 
 **A Referência passa no próprio contrato.** A limpeza e o contrato são uma política só,
@@ -369,6 +376,32 @@ Partições estratificadas pelo alvo, semente 42: treino 70.749 · validação 2
 AUC-PR de 0,3716 contra uma linha de base aleatória de 0,0694: **5,4 vezes** melhor que o
 acaso. O modelo recupera 69,15% dos inadimplentes ao custo de uma precisão de 23,50% — um
 ponto de operação deliberadamente deslocado para o recall, pela assimetria de custo.
+
+**A premissa de custo por trás do limiar.** Com probabilidade calibrada, recusar acima de
+$1/(1+k)$ minimiza o custo esperado, onde $k$ é quanto custa aprovar um inadimplente em
+relação a recusar um bom pagador. O corte de 0,5 do modelo publicado equivale a 6,94% de
+probabilidade corrigida, ou seja, a **$k \approx 13{,}4$**: um inadimplente aprovado custa
+o mesmo que 13,4 bons pagadores recusados. O valor vem da proporção entre as classes no
+treino, que o peso de classe embute no corte, e fica declarado como premissa do projeto — a
+base não tem os valores monetários que permitiriam medi-lo.
+
+### Reavaliação independente: piso, calibração e overfitting
+
+[`notebooks/03_baseline.ipynb`](notebooks/03_baseline.ipynb) reavalia esta escolha contra
+referências que não exigem modelo e contra candidatos treinados sem peso de classe, com
+escolha na validação e o teste usado uma única vez:
+
+- **O piso é alto:** uma regra de duas condições (algum atraso de 90+ dias ou rotativo acima
+  do limite) pega 39% dos inadimplentes com 38% de precisão, sem treinar nada.
+- **Um gradient boosting sem ajuste e sem peso supera o XGBoost publicado**: AUC-PR de 0,393
+  contra 0,370 no teste (diferença confirmada por bootstrap pareado na validação). O XGBoost
+  publicado perde 33% de AUC-PR do treino para a validação, por treinar 300 árvores sem parada
+  antecipada.
+- **O peso de classe só desloca o limiar — e infla as probabilidades em cerca de 4 vezes.** O
+  XGBoost publicado prevê em média 29% de inadimplência para uma taxa real de 6,9%; sem peso e
+  com o limiar ajustado ao mesmo recall, 95,6% das decisões são idênticas e o modelo fica
+  calibrado. A correção de prior $p' = p / (p + w(1-p))$ conserta o número sem retreinar e sem
+  mudar decisão. Os valores da coluna "Prob. média" abaixo são probabilidades infladas.
 
 ### Recorte por faixa etária
 
@@ -1033,6 +1066,31 @@ gerador**, mas esse controle também limita sua validade externa. Em produção,
 não é promover a sensibilidade do simulador a verdade causal: é **medir a degradação
 diretamente**, com rótulo atrasado, e tratar o PSI como o que ele é. Diagnóstico, não alarme.
 
+### Análise causal independente
+
+[`notebooks/02_analise_causal.ipynb`](notebooks/02_analise_causal.ipynb) refaz a pergunta
+causal sem usar a simulação nem o modelo desta seção: constrói um grafo causal explícito,
+separa fato do dado, fato lógico e suposição, e testa as hipóteses levantadas na análise
+exploratória com um modelo de trabalho próprio e três choques econômicos construídos de
+modo que só um deles precise de suposição sobre o rótulo.
+
+- **Só a mudança na relação entre perfil e risco degrada o modelo.** Inflação de 40% leva o
+  PSI da renda a 0,26 sem mover a AUC-ROC; uma carteira mais jovem leva o PSI da idade a
+  0,64 e o modelo continua calibrado. Uma crise em que 4% dos adimplentes passam a inadimplir
+  derruba a AUC-ROC de 0,852 para 0,730 — e responde por cerca de 100% da queda num
+  experimento fatorial com os três choques.
+- **Nenhum sinal sem rótulo vê a crise isolada.** PSI das variáveis, PSI do score e taxa de
+  aprovação ficam exatamente iguais. A taxa de aprovação acompanha a degradação nesta seção
+  porque, aqui, deslocamento das variáveis e *concept drift* crescem juntos; separados, ela
+  não vê o *concept drift* e dispara com a mudança de carteira que não prejudica o modelo.
+- **Onde o *concept drift* cai decide o dano.** Os mesmos novos inadimplentes elevam a
+  AUC-ROC se estão entre quem o modelo já via como arriscado e a derrubam para 0,574 se
+  estão entre quem ele via como seguro.
+- **Idade:** de 73% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
+  acompanha o comportamento de crédito, sobretudo o uso do rotativo — retirar a idade do
+  modelo removeria só a parte direta. A limpeza da base atenua a diferença entre idades:
+  razão de risco entre 18-25 e 61+ de 3,73× no bruto contra 3,05× na base limpa.
+
 ---
 
 ## Observabilidade em produção
@@ -1239,6 +1297,25 @@ modelo não foi alterado; as opções de mitigação, com o custo de cada uma, e
 documento, sob uma regra: medir as duas métricas antes e depois, porque fechar uma
 distância abrindo a outra é trocar de grupo prejudicado.
 
+**A auditoria completa, com incerteza e condicionamento**, está em
+[`notebooks/04_equidade.ipynb`](notebooks/04_equidade.ipynb), sobre o modelo publicado e o
+teste. As duas diferenças acima resistem ao bootstrap (a razão 4/5 de 18-25 e 26-40 fica abaixo
+de 0,80 em 100% das reamostras; o recall de 61+ é significativamente menor). Ela acrescenta
+três medições:
+
+- **Entre bons pagadores, o tratamento não é igual:** o modelo recusa 28,6% dos jovens de 18-25
+  que pagariam em dia, contra 6,2% dos idosos — 4,6 vezes mais.
+- **Para o mesmo score, o risco real é parecido em todas as faixas:** o modelo é aproximadamente
+  calibrado por idade. Com risco real diferente entre as faixas e o mesmo limiar para todas,
+  recusar mais jovens bons pagadores e deixar passar mais inadimplentes idosos são duas
+  consequências do mesmo fato — as duas métricas não se contradizem.
+- **A idade, sozinha, pesa muito acima dos 60 anos:** com renda, crédito e histórico idênticos,
+  57% dos jovens recusados seriam aprovados se tivessem 68 anos.
+
+A auditoria também mede três políticas de limiar por faixa: igualar a taxa de bons pagadores
+recusados leva a razão 4/5 de todas as faixas para perto de 1 ao custo de cerca de 2 pontos de
+recall total, e nenhuma política iguala todos os critérios ao mesmo tempo.
+
 **Revisão de decisão automatizada: o que a lei exige, e o que o projeto decide.** O art. 20
 garante revisão de decisão automatizada de crédito — mas a redação vigente **não exige que
 ela seja humana**: a expressão *"por pessoa natural"* do texto original foi retirada em 2018
@@ -1441,6 +1518,11 @@ docs/model_card.md             Uso pretendido, métricas, limitações e riscos
 docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar e o playbook
 docs/governanca.md             Base legal, dado tratado, retenção, equidade, causalidade, direitos
 docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
+notebooks/01_eda.ipynb              Análise exploratória: qualidade, viés de seleção, poder preditivo, idade
+notebooks/02_analise_causal.ipynb   Análise causal: idade e risco (mediação, seleção) e causas da degradação
+notebooks/03_baseline.ipynb         Baseline: piso sem modelo, candidatos, calibração, limiar, overfitting
+notebooks/04_equidade.ipynb         Equidade do modelo publicado: incerteza, condicional, contrafactual, políticas
+notebooks/05_explicabilidade.ipynb  Explicação das decisões: SHAP global, forma de cada variável, casos individuais
 tests/                         Suíte espelhando a estrutura de src/
 ```
 
@@ -1469,17 +1551,22 @@ Dívida declarada é maturidade; dívida escondida que o leitor descobre é defe
   provavelmente tem risco diferente. Em produção, esse perfil vai chegar — e hoje ele seria
   bloqueado pelo contrato em vez de pontuado. Tratar essa fatia exige uma política de
   imputação ou um modelo separado, e nenhum dos dois cabia nesta etapa.
-- **O limiar de decisão é 0,5 fixo**, não otimizado para a assimetria de custo que o próprio
-  README argumenta existir. Escolher o limiar por curva de custo é trabalho pendente.
+- **A premissa de custo do limiar é declarada, não medida.** O corte atual equivale a assumir
+  que um inadimplente aprovado custa o mesmo que 13,4 bons pagadores recusados. A base não
+  tem valores monetários; com custos reais, o corte seria recalculado pela regra
+  $1/(1+k)$.
 - **Hiperparâmetros são padrões conservadores de baseline**, sem busca. Deliberado: a
   comparação entre os dois candidatos só é evidência se o *ensemble* entrar como candidato
   honesto, não como vencedor ajustado a dedo.
 - **A precisão da classe positiva é 0,2350** — cerca de três em cada quatro recusas do
   modelo seriam bons pagadores. Aceitável dado o custo assimétrico, mas é um número que
   precisa entrar em qualquer discussão de adoção, não ser escondido atrás do recall.
-- **O recorte etário mostra assimetria descritiva** (4,7× de variação na recusa contra
-  2,7× no risco observado). As razões não são estimandos comparáveis e não isolam um efeito
-  da idade; a auditoria condicional e a incerteza por grupo ainda não foram feitas.
+- **O modelo trata as faixas etárias de forma desigual, e não foi alterado.** A auditoria
+  condicional (`notebooks/04_equidade.ipynb`) mostra que, entre bons pagadores, os jovens de
+  18-25 são recusados 4,6 vezes mais que os idosos, e que o modelo usa a idade com muita força
+  acima dos 60 anos. As mitigações medidas trocam uma desigualdade por outra sem ganho claro de
+  confiabilidade; a alternativa preferida, caso o tema seja retomado — treinar com a idade e
+  neutralizá-la na decisão —, ainda não foi medida.
 - **O gate compara contra o incumbente pelos metadados gravados no `model.joblib`**, não
   por uma reavaliação do incumbente sobre o teste corrente. Se a partição mudar, a
   comparação passa a ser entre números medidos sobre conjuntos diferentes.
@@ -1542,13 +1629,17 @@ E as que a camada de governança acrescenta — detalhe em
   as opções de mitigação, avaliadas; nenhuma foi aplicada ao campeão.
 - **Viés por atributo ausente não é mensurável.** Renda e dependentes podem carregar sinal de
   gênero ou região, que a Referência não tem.
-- **A explicação é global, não por decisão.** Os critérios do modelo e o que os invalida
-  estão documentados; por que *um* pedido específico foi recusado, não.
+- **A explicação individual existe como análise, não no produto.**
+  `notebooks/05_explicabilidade.ipynb` explica cada decisão pelos fatores que pesaram contra
+  e a favor (SHAP exato do XGBoost), mas nem a API nem `make consultar-decisao` a devolvem
+  ainda. Com o modelo atual, a idade estaria entre os três principais motivos de 86% das
+  recusas de 18-25 anos.
 
 ### Continuidade
 
-Sobre esta base, na ordem em que um depende do outro: a **explicação individual** sobre o
-registro de decisão, que já guarda as entradas e o modelo de cada decisão; a **mitigação de
-viés** escolhida entre as opções medidas, passando pelo mesmo gate de promoção de qualquer
-candidato; e o **relatório de impacto à proteção de dados** (LGPD, art. 38), que
+Sobre esta base, na ordem em que um depende do outro: a **explicação individual no
+produto**, gerada sobre o registro de decisão com o método validado em
+`notebooks/05_explicabilidade.ipynb`; a **mitigação de viés**, se retomada, pela alternativa
+registrada na governança (treinar com a idade e neutralizá-la na decisão), passando pelo
+mesmo gate de promoção de qualquer candidato; e o **relatório de impacto à proteção de dados** (LGPD, art. 38), que
 `docs/governanca.md` já estrutura.

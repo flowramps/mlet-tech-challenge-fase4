@@ -15,5 +15,6 @@ reports
 mlruns
 decisoes
 docs
+notebooks
 tests
 scripts

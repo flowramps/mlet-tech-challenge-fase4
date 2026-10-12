@@ -217,11 +217,32 @@ opostas**:
   metade dos inadimplentes 61+, contra pouco mais de um quinto dos 18-25.
 
 A regra dos 4/5 não condiciona a comparação ao risco observado — e ele difere entre as
-faixas: a inadimplência cai de 8,64% (18-25) e 10,58% (26-40) para 3,22% (61+). A recusa
-varia 4,7× entre os extremos e o risco observado, 2,7× (ver o model card), mas essas razões
-não são estimandos comparáveis e **não identificam** uma parcela de efeito atribuível à
-idade. Essa conclusão exigiria análise condicional, incerteza amostral e avaliação de
-confundimento; os números atuais são sinais descritivos para auditoria.
+faixas: a inadimplência cai de 8,64% (18-25) e 10,58% (26-40) para 3,22% (61+). A auditoria
+em [`notebooks/04_equidade.ipynb`](../notebooks/04_equidade.ipynb), sobre o modelo
+publicado e o teste, mede a incerteza amostral, faz a comparação condicional e testa o uso
+direto da idade pelo modelo:
+
+- **As duas diferenças são reais.** Em 2.000 reamostras por bootstrap, a razão 4/5 de 18-25
+  e 26-40 fica abaixo de 0,80 em todas, e o recall de 61+ é significativamente menor que o de
+  18-25 (diferença de −0,26, intervalo de 95% de −0,40 a −0,10).
+- **Entre bons pagadores, o tratamento não é igual.** Entre quem pagaria em dia, o modelo
+  recusa 28,6% dos jovens de 18-25 e 6,2% dos idosos de 61+ — 4,6 vezes mais. Essa
+  comparação já desconta o risco: todos ali são bons pagadores.
+- **Para o mesmo score, o risco real é parecido em todas as faixas.** O modelo é
+  aproximadamente calibrado por idade. Com risco real diferente entre as faixas e o mesmo
+  limiar para todas, recusar mais jovens bons pagadores e deixar passar mais inadimplentes
+  idosos são duas consequências do mesmo fato: as duas métricas acima não se contradizem.
+- **A idade, sozinha, pesa muito acima dos 60 anos.** Com renda, crédito e histórico
+  idênticos, 57% dos jovens de 18-25 recusados seriam aprovados se tivessem 68 anos; com 50
+  anos, 13%.
+
+(Os valores do notebook diferem em décimos dos da tabela acima porque `make train` retreina
+o modelo em cada ambiente, e o XGBoost não reproduz o mesmo modelo entre sistemas
+operacionais. As conclusões coincidem.)
+
+O confundimento é tratado em [`notebooks/02_analise_causal.ipynb`](../notebooks/02_analise_causal.ipynb):
+no risco real, de 73% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
+acompanha o comportamento de crédito, sobretudo o uso do rotativo.
 
 **Uma única métrica de equidade daria o veredito de uma direção e esconderia a outra.** É
 por isso que as duas são publicadas em `metrics.json` a cada treino (`equidade.
@@ -251,6 +272,27 @@ mitigação que fecha a razão 4/5 e abre a distância de recall não é mitiga�
 grupo prejudicado. As duas funções existem (`credito.model.evaluate`) exatamente para que
 essa medição seja um comando, não um projeto.
 
+**O que a medição mostrou.** A auditoria mediu três políticas de limiar por faixa — igualar o
+recall, igualar a taxa de bons pagadores recusados e igualar a aprovação. Igualar os bons
+pagadores recusados leva a razão 4/5 de todas as faixas para perto de 1 ao custo de cerca de
+2 pontos de recall total (0,697 para 0,678); nenhuma política iguala todos os critérios ao
+mesmo tempo, porque o risco real difere entre as faixas.
+
+**Decisão: o modelo publicado não é alterado.** Ele cumpre o que o problema pede, com
+desempenho bem acima do que se obtém sem modelo (`notebooks/03_baseline.ipynb`), e as
+mitigações medidas trocam uma desigualdade por outra a um custo de desempenho, sem um ganho
+claro de confiabilidade no resultado. A mudança se justificaria se aumentasse de forma
+relevante a confiabilidade da decisão.
+
+**Se a questão for retomada**, a alternativa mais coerente com o princípio de que a idade, em
+si, não deve justificar aprovar ou recusar é **treinar com a idade e neutralizá-la na
+decisão** — todos os pedidos avaliados com a mesma idade. No treino, os pesos das outras
+variáveis medem o efeito delas descontando a idade, sem que o uso do rotativo passe a
+funcionar como substituto dela, como aconteceria se a idade fosse simplesmente retirada. Na
+decisão, a idade deixa de mudar o resultado, sem regra diferente por faixa. Essa alternativa
+não foi medida: a perda de desempenho e o efeito sobre cada faixa precisariam ser
+quantificados antes de qualquer adoção.
+
 O que não está medido: **viés por atributo que o dado não tem.** Renda e número de
 dependentes podem carregar sinal de gênero ou região, que não estão na Referência. Não há
 como medir a equidade sobre um atributo ausente — está declarado como risco no model card.
@@ -270,7 +312,11 @@ valer**.
 rotativo, idade, três contagens de atraso, razão de endividamento, renda mensal, número de
 linhas de crédito, de financiamentos imobiliários e de dependentes —, um classificador
 XGBoost e um limiar de 0,5 sobre a probabilidade estimada de inadimplência nos dois anos
-seguintes.
+seguintes. Como a saída do modelo é inflada pelo peso de classe, esse corte equivale a
+recusar quem tem chance estimada de inadimplência acima de 6,94%, a média da base — e, em
+termos de custo, a assumir que aprovar um inadimplente custa o mesmo que recusar 13,4 bons
+pagadores. Essa premissa é declarada, não validada com custos reais, que a base não contém
+(ver o model card, Limitações).
 
 **O que os invalida no cenário estudado.** Sob uma mudança econômica simulada de seis
 meses, o modelo perdeu 0,2079 de AUC-ROC. Ligando uma transformação de cada vez e mantendo
@@ -303,10 +349,29 @@ Três consequências para governança:
    rótulo (`docs/monitoring_plan.md`) para saber **se** o modelo degradou, e a degradação medida
    com rótulo atrasado para saber **quanto** — não **por quê**.
 
-O que o projeto **não** entrega: explicação de uma decisão individual (por que *este*
-pedido foi recusado). Os critérios acima são globais. O registro de decisão (seção 3) já
-guarda tudo o que essa explicação exigiria — as entradas e o modelo exato —; a explicação
-em si é a continuidade natural dele.
+**A explicação de uma decisão individual** (por que *este* pedido foi recusado) está
+demonstrada em [`notebooks/05_explicabilidade.ipynb`](../notebooks/05_explicabilidade.ipynb),
+com os valores SHAP que o próprio XGBoost calcula. Eles dividem a nota de cada pedido entre
+as variáveis, de forma exata, e valem também para a probabilidade corrigida pela fórmula de
+prior: cada decisão pode ser explicada pelos fatores que pesaram contra e a favor, em
+linguagem comum — por exemplo, *"pesaram contra: usa 100% do limite do rotativo, renda de
+1.640, tem 25 anos; pesou a favor: nenhum atraso"*. O corte de 0,5 do modelo publicado
+equivale a recusar quem tem risco estimado acima da média da base (6,94%).
+
+Globalmente, o modelo se apoia no comportamento de crédito: o uso do rotativo responde por
+30% do que move as notas, e os atrasos, por 33%. Dois comportamentos pedem atenção:
+
+- **a idade é a quarta variável mais usada** (9,3%) e age em degraus, aos 55 e aos 64 anos.
+  Ela aparece entre os três principais motivos de **86% das recusas de 18-25 anos** (91% entre
+  bons pagadores recusados): uma explicação individual dada a um jovem recusado, na maioria
+  dos casos, citaria a idade. A alternativa da seção 4 — treinar com a idade e neutralizá-la
+  na decisão — a retiraria das explicações;
+- **renda declarada muito baixa reduz o risco** no modelo: o defeito de registro que a análise
+  exploratória mede (renda zero ou quase zero com inadimplência abaixo da média) foi aprendido
+  como sinal.
+
+O que falta é levar a explicação ao produto: o registro de decisão (seção 3) já guarda as
+entradas e o modelo exato de cada decisão, e é sobre ele que a explicação seria gerada.
 
 ---
 
@@ -316,7 +381,7 @@ em si é a continuidade natural dele.
 |---|---|---|---|
 | Confirmação e acesso | LGPD, art. 18, I e II; Lei nº 12.414, art. 5º, II | No sistema de origem, que detém a identidade e o `id_decisao` de cada pedido; com ele, `make consultar-decisao` devolve o que o serviço de scoring gravou | — |
 | Correção | LGPD, art. 18, III; Lei nº 12.414, art. 5º, III | Correção na origem e nova pontuação; o contrato de dados (`credito.contracts`) já bloqueia o dado inválido antes do modelo | — |
-| Informação sobre critérios | LGPD, art. 20, §1º; Lei nº 12.414, art. 5º, IV | Este documento, a seção 5 e o model card | Explicação por decisão individual |
+| Informação sobre critérios | LGPD, art. 20, §1º; Lei nº 12.414, art. 5º, IV | Este documento, a seção 5, o model card e, por decisão, `notebooks/05_explicabilidade.ipynb` | Explicação individual gerada no produto, sobre o registro de decisão |
 | **Revisão de decisão automatizada** | LGPD, art. 20; Lei nº 12.414, art. 5º, VI | Registro de decisão (seção 3) e reconstrução por `make consultar-decisao` — ver abaixo | Fluxo de revisão humana do controlador |
 | Oposição | LGPD, art. 18, §2º | Pelo controlador, no canal do encarregado | — |
 | Petição à autoridade | LGPD, art. 18, §1º | Direito do titular, independente da arquitetura | — |
@@ -353,10 +418,12 @@ O que torna essa revisão possível hoje e o que ainda falta:
 O que esta etapa deixa especificado para a operação em produção, na ordem em que um
 depende do outro:
 
-1. **Explicação individual** sobre o registro de decisão, que já guarda as entradas e o
-   modelo exato de cada decisão.
-2. **Mitigação de viés** escolhida entre as opções da seção 4, aplicada com as duas
-   métricas medidas antes e depois, e passando pelo mesmo gate de promoção de qualquer
-   candidato.
+1. **Explicação individual no produto**, gerada sobre o registro de decisão, que já guarda
+   as entradas e o modelo exato de cada decisão. O método está validado em
+   `notebooks/05_explicabilidade.ipynb`; falta expô-lo, por exemplo em `make
+   consultar-decisao`.
+2. **Mitigação de viés, se retomada**, pela alternativa registrada na seção 4 — treinar com
+   a idade e neutralizá-la na decisão —, medida antes de adotada e passando pelo mesmo gate
+   de promoção de qualquer candidato.
 3. **Relatório de impacto à proteção de dados** (art. 5º, XVII; art. 38), que este
    documento já estrutura: tipos de dados, metodologia, riscos medidos e mitigação.
