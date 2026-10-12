@@ -213,6 +213,13 @@ schema de tipos deixa passar.
 *(Todos os números acima medidos sobre `data/raw/GiveMeSomeCredit.arff` nesta versão do
 repositório.)*
 
+A análise exploratória completa — feita só sobre o arquivo de dados, antes de qualquer
+modelo: qualidade do bruto, as regras de limpeza que saem dela, o perfil de quem a limpeza
+descarta, distribuições, outliers, poder preditivo de cada variável (Information Value),
+correlações, a relação entre idade e risco e o que a base não permite responder — está em
+[`notebooks/01_eda.ipynb`](notebooks/01_eda.ipynb), salva com as saídas. `make eda` a
+reexecuta (requer `poetry install --with notebooks`).
+
 ### Duas propriedades que custaram a ser obtidas
 
 **A Referência passa no próprio contrato.** A limpeza e o contrato são uma política só,
@@ -1441,6 +1448,7 @@ docs/model_card.md             Uso pretendido, métricas, limitações e riscos
 docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar e o playbook
 docs/governanca.md             Base legal, dado tratado, retenção, equidade, causalidade, direitos
 docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
+notebooks/01_eda.ipynb         Análise exploratória: qualidade, viés de seleção, poder preditivo, idade
 tests/                         Suíte espelhando a estrutura de src/
 ```
 

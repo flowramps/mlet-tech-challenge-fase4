@@ -52,6 +52,16 @@ pandera = ">=0.33.1,<0.34"
 evidently = ">=0.7.23,<0.8"
 mlflow = ">=3.16,<4.0"
 
+# A análise exploratória (`notebooks/`) é leitura humana, não pipeline: nem a API nem
+# `make reproduzir` importam jupyter ou matplotlib. Opcional, então `poetry install` e a CI
+# não trazem o grupo; `poetry install --with notebooks` traz.
+[tool.poetry.group.notebooks]
+optional = true
+
+[tool.poetry.group.notebooks.dependencies]
+jupyter = "^1.1"
+matplotlib = "^3.9"
+
 [build-system]
 requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"

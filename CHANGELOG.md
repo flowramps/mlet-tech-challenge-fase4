@@ -8,6 +8,13 @@ na própria etapa; os atuais estão no README.
 ## Não lançado
 
 ### Adicionado
+- `notebooks/01_eda.ipynb`: análise exploratória feita só sobre o arquivo de dados —
+  qualidade do bruto e as regras de limpeza derivadas dela (conferidas contra
+  `credito.data.prepare.limpar`), viés de seleção do descarte por renda ausente (quem não
+  declara renda inadimple 5,61% contra 6,95%), outliers por plausibilidade, Information Value
+  e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
+  sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
+  no grupo opcional `notebooks`.
 - `docs/metodologia.md` formaliza a questão de pesquisa, as hipóteses H1–H4, os estimandos,
   a hierarquia das conclusões e as ameaças às validades interna, de construto, externa e de
   conclusão.
