@@ -1289,6 +1289,25 @@ modelo não foi alterado; as opções de mitigação, com o custo de cada uma, e
 documento, sob uma regra: medir as duas métricas antes e depois, porque fechar uma
 distância abrindo a outra é trocar de grupo prejudicado.
 
+**A auditoria completa, com incerteza e condicionamento**, está em
+[`notebooks/04_equidade.ipynb`](notebooks/04_equidade.ipynb), sobre o modelo publicado e o
+teste. As duas diferenças acima resistem ao bootstrap (a razão 4/5 de 18-25 e 26-40 fica abaixo
+de 0,80 em 100% das reamostras; o recall de 61+ é significativamente menor). Ela acrescenta
+três medições:
+
+- **Entre bons pagadores, o tratamento não é igual:** o modelo recusa 28,6% dos jovens de 18-25
+  que pagariam em dia, contra 6,2% dos idosos — 4,6 vezes mais.
+- **Para o mesmo score, o risco real é parecido em todas as faixas:** o modelo é aproximadamente
+  calibrado por idade. Com risco real diferente entre as faixas e o mesmo limiar para todas,
+  recusar mais jovens bons pagadores e deixar passar mais inadimplentes idosos são duas
+  consequências do mesmo fato — as duas métricas não se contradizem.
+- **A idade, sozinha, pesa muito acima dos 60 anos:** com renda, crédito e histórico idênticos,
+  57% dos jovens recusados seriam aprovados se tivessem 68 anos.
+
+A auditoria também mede três políticas de limiar por faixa: igualar a taxa de bons pagadores
+recusados leva a razão 4/5 de todas as faixas para perto de 1 ao custo de cerca de 2 pontos de
+recall total, e nenhuma política iguala todos os critérios ao mesmo tempo.
+
 **Revisão de decisão automatizada: o que a lei exige, e o que o projeto decide.** O art. 20
 garante revisão de decisão automatizada de crédito — mas a redação vigente **não exige que
 ela seja humana**: a expressão *"por pessoa natural"* do texto original foi retirada em 2018
@@ -1493,6 +1512,7 @@ docs/governanca.md             Base legal, dado tratado, retenção, equidade, c
 docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
 notebooks/01_eda.ipynb         Análise exploratória: qualidade, viés de seleção, poder preditivo, idade
 notebooks/03_baseline.ipynb    Baseline: piso sem modelo, candidatos, calibração, limiar, overfitting
+notebooks/04_equidade.ipynb    Equidade do modelo publicado: incerteza, condicional, contrafactual, políticas
 notebooks/02_analise_causal.ipynb  Análise causal: idade e risco (mediação, seleção) e causas da degradação
 tests/                         Suíte espelhando a estrutura de src/
 ```
@@ -1530,9 +1550,12 @@ Dívida declarada é maturidade; dívida escondida que o leitor descobre é defe
 - **A precisão da classe positiva é 0,2350** — cerca de três em cada quatro recusas do
   modelo seriam bons pagadores. Aceitável dado o custo assimétrico, mas é um número que
   precisa entrar em qualquer discussão de adoção, não ser escondido atrás do recall.
-- **O recorte etário mostra assimetria descritiva** (4,7× de variação na recusa contra
-  2,7× no risco observado). As razões não são estimandos comparáveis e não isolam um efeito
-  da idade; a auditoria condicional e a incerteza por grupo ainda não foram feitas.
+- **O modelo trata as faixas etárias de forma desigual, e não foi alterado.** A auditoria
+  condicional (`notebooks/04_equidade.ipynb`) mostra que, entre bons pagadores, os jovens de
+  18-25 são recusados 4,6 vezes mais que os idosos, e que o modelo usa a idade com muita força
+  acima dos 60 anos. As mitigações medidas trocam uma desigualdade por outra sem ganho claro de
+  confiabilidade; a alternativa preferida, caso o tema seja retomado — treinar com a idade e
+  neutralizá-la na decisão —, ainda não foi medida.
 - **O gate compara contra o incumbente pelos metadados gravados no `model.joblib`**, não
   por uma reavaliação do incumbente sobre o teste corrente. Se a partição mudar, a
   comparação passa a ser entre números medidos sobre conjuntos diferentes.

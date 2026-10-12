@@ -15,6 +15,12 @@ na própria etapa; os atuais estão no README.
   e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
   sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
   no grupo opcional `notebooks`.
+- `notebooks/04_equidade.ipynb`: auditoria de equidade do modelo publicado no teste, nas
+  quatro faixas etárias. Bootstrap confirma a razão 4/5 abaixo de 0,80 para 18-40 e o recall
+  menor de 61+; entre bons pagadores, 18-25 é recusado 4,6 vezes mais que 61+ (28,6% contra
+  6,2%); o modelo é aproximadamente calibrado por faixa; trocar só a idade por 68 anos aprovaria
+  57% dos jovens recusados; três políticas de limiar por faixa medidas. `make equidade`
+  reexecuta.
 - `notebooks/03_baseline.ipynb`: piso sem modelo (regra de duas condições: recall 0,39 com
   precisão 0,38), cinco candidatos com bootstrap pareado, curvas PR e ROC, calibração, limiar
   por margem de custo, matriz de confusão e overfitting. Um gradient boosting sem ajuste nem

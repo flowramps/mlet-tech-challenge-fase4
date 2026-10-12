@@ -1,7 +1,7 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
 .PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
-	validar-proxies auditar-privacidade calibrar-alarme eda baseline causal consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
+	validar-proxies auditar-privacidade calibrar-alarme eda baseline causal equidade consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -60,6 +60,9 @@ baseline:         ## Reexecuta o notebook de baseline: piso, candidatos e calibr
 
 causal:           ## Reexecuta a análise causal (~5 min; requer `poetry install --with notebooks`)
 	poetry run python -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=1800 notebooks/02_analise_causal.ipynb
+
+equidade:         ## Reexecuta a auditoria de equidade do modelo publicado (requer `make train` e `poetry install --with notebooks`)
+	poetry run python -m nbconvert --to notebook --execute --inplace notebooks/04_equidade.ipynb
 
 reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, alarme, privacidade)
 	$(MAKE) data

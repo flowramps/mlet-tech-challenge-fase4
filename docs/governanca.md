@@ -217,11 +217,32 @@ opostas**:
   metade dos inadimplentes 61+, contra pouco mais de um quinto dos 18-25.
 
 A regra dos 4/5 não condiciona a comparação ao risco observado — e ele difere entre as
-faixas: a inadimplência cai de 8,64% (18-25) e 10,58% (26-40) para 3,22% (61+). A recusa
-varia 4,7× entre os extremos e o risco observado, 2,7× (ver o model card), mas essas razões
-não são estimandos comparáveis e **não identificam** uma parcela de efeito atribuível à
-idade. Essa conclusão exigiria análise condicional, incerteza amostral e avaliação de
-confundimento; os números atuais são sinais descritivos para auditoria.
+faixas: a inadimplência cai de 8,64% (18-25) e 10,58% (26-40) para 3,22% (61+). A auditoria
+em [`notebooks/04_equidade.ipynb`](../notebooks/04_equidade.ipynb), sobre o modelo
+publicado e o teste, mede a incerteza amostral, faz a comparação condicional e testa o uso
+direto da idade pelo modelo:
+
+- **As duas diferenças são reais.** Em 2.000 reamostras por bootstrap, a razão 4/5 de 18-25
+  e 26-40 fica abaixo de 0,80 em todas, e o recall de 61+ é significativamente menor que o de
+  18-25 (diferença de −0,26, intervalo de 95% de −0,40 a −0,10).
+- **Entre bons pagadores, o tratamento não é igual.** Entre quem pagaria em dia, o modelo
+  recusa 28,6% dos jovens de 18-25 e 6,2% dos idosos de 61+ — 4,6 vezes mais. Essa
+  comparação já desconta o risco: todos ali são bons pagadores.
+- **Para o mesmo score, o risco real é parecido em todas as faixas.** O modelo é
+  aproximadamente calibrado por idade. Com risco real diferente entre as faixas e o mesmo
+  limiar para todas, recusar mais jovens bons pagadores e deixar passar mais inadimplentes
+  idosos são duas consequências do mesmo fato: as duas métricas acima não se contradizem.
+- **A idade, sozinha, pesa muito acima dos 60 anos.** Com renda, crédito e histórico
+  idênticos, 57% dos jovens de 18-25 recusados seriam aprovados se tivessem 68 anos; com 50
+  anos, 13%.
+
+(Os valores do notebook diferem em décimos dos da tabela acima porque `make train` retreina
+o modelo em cada ambiente, e o XGBoost não reproduz o mesmo modelo entre sistemas
+operacionais. As conclusões coincidem.)
+
+O confundimento é tratado em [`notebooks/02_analise_causal.ipynb`](../notebooks/02_analise_causal.ipynb):
+no risco real, de 73% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
+acompanha o comportamento de crédito, sobretudo o uso do rotativo.
 
 **Uma única métrica de equidade daria o veredito de uma direção e esconderia a outra.** É
 por isso que as duas são publicadas em `metrics.json` a cada treino (`equidade.
@@ -250,6 +271,27 @@ recomendar, não retreinar. As opções, com o que cada uma custa:
 mitigação que fecha a razão 4/5 e abre a distância de recall não é mitigação, é troca de
 grupo prejudicado. As duas funções existem (`credito.model.evaluate`) exatamente para que
 essa medição seja um comando, não um projeto.
+
+**O que a medição mostrou.** A auditoria mediu três políticas de limiar por faixa — igualar o
+recall, igualar a taxa de bons pagadores recusados e igualar a aprovação. Igualar os bons
+pagadores recusados leva a razão 4/5 de todas as faixas para perto de 1 ao custo de cerca de
+2 pontos de recall total (0,697 para 0,678); nenhuma política iguala todos os critérios ao
+mesmo tempo, porque o risco real difere entre as faixas.
+
+**Decisão: o modelo publicado não é alterado.** Ele cumpre o que o problema pede, com
+desempenho bem acima do que se obtém sem modelo (`notebooks/03_baseline.ipynb`), e as
+mitigações medidas trocam uma desigualdade por outra a um custo de desempenho, sem um ganho
+claro de confiabilidade no resultado. A mudança se justificaria se aumentasse de forma
+relevante a confiabilidade da decisão.
+
+**Se a questão for retomada**, a alternativa mais coerente com o princípio de que a idade, em
+si, não deve justificar aprovar ou recusar é **treinar com a idade e neutralizá-la na
+decisão** — todos os pedidos avaliados com a mesma idade. No treino, os pesos das outras
+variáveis medem o efeito delas descontando a idade, sem que o uso do rotativo passe a
+funcionar como substituto dela, como aconteceria se a idade fosse simplesmente retirada. Na
+decisão, a idade deixa de mudar o resultado, sem regra diferente por faixa. Essa alternativa
+não foi medida: a perda de desempenho e o efeito sobre cada faixa precisariam ser
+quantificados antes de qualquer adoção.
 
 O que não está medido: **viés por atributo que o dado não tem.** Renda e número de
 dependentes podem carregar sinal de gênero ou região, que não estão na Referência. Não há
