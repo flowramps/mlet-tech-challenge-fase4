@@ -377,6 +377,14 @@ AUC-PR de 0,3716 contra uma linha de base aleatória de 0,0694: **5,4 vezes** me
 acaso. O modelo recupera 69,15% dos inadimplentes ao custo de uma precisão de 23,50% — um
 ponto de operação deliberadamente deslocado para o recall, pela assimetria de custo.
 
+**A premissa de custo por trás do limiar.** Com probabilidade calibrada, recusar acima de
+$1/(1+k)$ minimiza o custo esperado, onde $k$ é quanto custa aprovar um inadimplente em
+relação a recusar um bom pagador. O corte de 0,5 do modelo publicado equivale a 6,94% de
+probabilidade corrigida, ou seja, a **$k \approx 13{,}4$**: um inadimplente aprovado custa
+o mesmo que 13,4 bons pagadores recusados. O valor vem da proporção entre as classes no
+treino, que o peso de classe embute no corte, e fica declarado como premissa do projeto — a
+base não tem os valores monetários que permitiriam medi-lo.
+
 ### Reavaliação independente: piso, calibração e overfitting
 
 [`notebooks/03_baseline.ipynb`](notebooks/03_baseline.ipynb) reavalia esta escolha contra
@@ -1543,8 +1551,10 @@ Dívida declarada é maturidade; dívida escondida que o leitor descobre é defe
   provavelmente tem risco diferente. Em produção, esse perfil vai chegar — e hoje ele seria
   bloqueado pelo contrato em vez de pontuado. Tratar essa fatia exige uma política de
   imputação ou um modelo separado, e nenhum dos dois cabia nesta etapa.
-- **O limiar de decisão é 0,5 fixo**, não otimizado para a assimetria de custo que o próprio
-  README argumenta existir. Escolher o limiar por curva de custo é trabalho pendente.
+- **A premissa de custo do limiar é declarada, não medida.** O corte atual equivale a assumir
+  que um inadimplente aprovado custa o mesmo que 13,4 bons pagadores recusados. A base não
+  tem valores monetários; com custos reais, o corte seria recalculado pela regra
+  $1/(1+k)$.
 - **Hiperparâmetros são padrões conservadores de baseline**, sem busca. Deliberado: a
   comparação entre os dois candidatos só é evidência se o *ensemble* entrar como candidato
   honesto, não como vencedor ajustado a dedo.

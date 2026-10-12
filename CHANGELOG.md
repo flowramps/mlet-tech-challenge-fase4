@@ -15,6 +15,11 @@ na própria etapa; os atuais estão no README.
   e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
   sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
   no grupo opcional `notebooks`.
+- Premissa de custo do limiar declarada no model card, na governança e no README: o corte de
+  0,5 do modelo publicado equivale a recusar acima de 6,94% de probabilidade corrigida e,
+  portanto, a assumir que um inadimplente aprovado custa o mesmo que 13,4 bons pagadores
+  recusados. O valor vem da proporção entre as classes embutida pelo peso de classe, não de
+  custos reais, que a base não contém.
 - `notebooks/05_explicabilidade.ipynb`: explicação das decisões do modelo publicado com o
   SHAP exato do XGBoost, válido também para a probabilidade corrigida. O corte de 0,5 equivale
   a recusar quem tem risco acima da média (6,94%); o uso do rotativo responde por 30% do que

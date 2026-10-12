@@ -312,7 +312,11 @@ valer**.
 rotativo, idade, três contagens de atraso, razão de endividamento, renda mensal, número de
 linhas de crédito, de financiamentos imobiliários e de dependentes —, um classificador
 XGBoost e um limiar de 0,5 sobre a probabilidade estimada de inadimplência nos dois anos
-seguintes.
+seguintes. Como a saída do modelo é inflada pelo peso de classe, esse corte equivale a
+recusar quem tem chance estimada de inadimplência acima de 6,94%, a média da base — e, em
+termos de custo, a assumir que aprovar um inadimplente custa o mesmo que recusar 13,4 bons
+pagadores. Essa premissa é declarada, não validada com custos reais, que a base não contém
+(ver o model card, Limitações).
 
 **O que os invalida no cenário estudado.** Sob uma mudança econômica simulada de seis
 meses, o modelo perdeu 0,2079 de AUC-ROC. Ligando uma transformação de cada vez e mantendo
