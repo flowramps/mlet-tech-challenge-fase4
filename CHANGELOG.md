@@ -15,6 +15,13 @@ na própria etapa; os atuais estão no README.
   e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
   sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
   no grupo opcional `notebooks`.
+- `notebooks/02_analise_causal.ipynb`: análise causal com grafo explícito. Parte 1, idade e
+  risco: a seleção da limpeza atenua a razão de risco entre 18-25 e 61+ (3,73× para 3,05×), e
+  73% a 80% do excesso de risco de 26-60 anos acompanha o comportamento de crédito, sobretudo
+  o uso do rotativo. Parte 2, degradação: com modelo e choques próprios (inflação, novos
+  perfis, crise), só a crise degrada o modelo (AUC-ROC 0,852 para 0,730), responde por cerca
+  de 100% da queda no fatorial 2³ e não move PSI nem taxa de aprovação. `make causal`
+  reexecuta.
 - `docs/metodologia.md` formaliza a questão de pesquisa, as hipóteses H1–H4, os estimandos,
   a hierarquia das conclusões e as ameaças às validades interna, de construto, externa e de
   conclusão.

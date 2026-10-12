@@ -30,7 +30,7 @@
 | **Validação de dados** (25%) | contrato com regras rígidas interceptando anomalias; lote com erro bloqueando a ingestão | [Contrato de dados](#contrato-de-dados) · `src/credito/contracts/` | `make demo-contrato` |
 | **Detecção de drift** (25%) | alterar a distribuição de ao menos duas variáveis; Referência contra Produção no Evidently; PSI/KS por feature | [Monitoramento de drift](#monitoramento-de-drift) · [relatório HTML do mês 6](https://github.com/flowramps/mlet-tech-challenge-fase4/releases/download/v1.1.0/drift_mes_06.html) | `make monitor` |
 | **Observabilidade e logs** (20%) | logs de execução do pipeline (sucesso e falha, por tarefa, com volume) e do drift centralizados; métricas de saúde, infraestrutura e alertas visíveis; métricas documentadas | [Observabilidade em produção](#observabilidade-em-produção) · [`docs/monitoring_plan.md`](docs/monitoring_plan.md) · `docs/images/` | `make observabilidade-up && make traffic LOTE=mes_06` · `make calibrar-alarme` · `make mlflow-up` |
-| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) · [`docs/metodologia.md`](docs/metodologia.md) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
+| **Governança — LGPD** (15%) | tratamento da PII, base legal da decisão de crédito, retenção, mitigação de vieses, causalidade | [Governança e proteção de dados](#governança-e-proteção-de-dados) · [`docs/governanca.md`](docs/governanca.md) · [`docs/model_card.md`](docs/model_card.md) · [`docs/metodologia.md`](docs/metodologia.md) · [`notebooks/02_analise_causal.ipynb`](notebooks/02_analise_causal.ipynb) | `make auditar-privacidade` · `make consultar-decisao ID=…` · `equidade` em `metrics/metrics.json` |
 | **Vídeo STAR** (15%) | a degradação demonstrada, em até 5 minutos | link nesta seção, quando publicado | — |
 | **Repositório** | pipeline de validação, scripts de simulação e detecção, relatórios, governança no README, commits semânticos | [Estrutura do projeto](#estrutura-do-projeto) · [`CHANGELOG.md`](CHANGELOG.md) | `make help` · `git log --oneline` |
 
@@ -1040,6 +1040,31 @@ gerador**, mas esse controle também limita sua validade externa. Em produção,
 não é promover a sensibilidade do simulador a verdade causal: é **medir a degradação
 diretamente**, com rótulo atrasado, e tratar o PSI como o que ele é. Diagnóstico, não alarme.
 
+### Análise causal independente
+
+[`notebooks/02_analise_causal.ipynb`](notebooks/02_analise_causal.ipynb) refaz a pergunta
+causal sem usar a simulação nem o modelo desta seção: constrói um grafo causal explícito,
+separa fato do dado, fato lógico e suposição, e testa as hipóteses levantadas na análise
+exploratória com um modelo de trabalho próprio e três choques econômicos construídos de
+modo que só um deles precise de suposição sobre o rótulo.
+
+- **Só a mudança na relação entre perfil e risco degrada o modelo.** Inflação de 40% leva o
+  PSI da renda a 0,26 sem mover a AUC-ROC; uma carteira mais jovem leva o PSI da idade a
+  0,64 e o modelo continua calibrado. Uma crise em que 4% dos adimplentes passam a inadimplir
+  derruba a AUC-ROC de 0,852 para 0,730 — e responde por cerca de 100% da queda num
+  experimento fatorial com os três choques.
+- **Nenhum sinal sem rótulo vê a crise isolada.** PSI das variáveis, PSI do score e taxa de
+  aprovação ficam exatamente iguais. A taxa de aprovação acompanha a degradação nesta seção
+  porque, aqui, deslocamento das variáveis e *concept drift* crescem juntos; separados, ela
+  não vê o *concept drift* e dispara com a mudança de carteira que não prejudica o modelo.
+- **Onde o *concept drift* cai decide o dano.** Os mesmos novos inadimplentes elevam a
+  AUC-ROC se estão entre quem o modelo já via como arriscado e a derrubam para 0,574 se
+  estão entre quem ele via como seguro.
+- **Idade:** de 73% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
+  acompanha o comportamento de crédito, sobretudo o uso do rotativo — retirar a idade do
+  modelo removeria só a parte direta. A limpeza da base atenua a diferença entre idades:
+  razão de risco entre 18-25 e 61+ de 3,73× no bruto contra 3,05× na base limpa.
+
 ---
 
 ## Observabilidade em produção
@@ -1449,6 +1474,7 @@ docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar 
 docs/governanca.md             Base legal, dado tratado, retenção, equidade, causalidade, direitos
 docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
 notebooks/01_eda.ipynb         Análise exploratória: qualidade, viés de seleção, poder preditivo, idade
+notebooks/02_analise_causal.ipynb  Análise causal: idade e risco (mediação, seleção) e causas da degradação
 tests/                         Suíte espelhando a estrutura de src/
 ```
 
