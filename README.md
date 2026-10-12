@@ -377,6 +377,24 @@ AUC-PR de 0,3716 contra uma linha de base aleatória de 0,0694: **5,4 vezes** me
 acaso. O modelo recupera 69,15% dos inadimplentes ao custo de uma precisão de 23,50% — um
 ponto de operação deliberadamente deslocado para o recall, pela assimetria de custo.
 
+### Reavaliação independente: piso, calibração e overfitting
+
+[`notebooks/03_baseline.ipynb`](notebooks/03_baseline.ipynb) reavalia esta escolha contra
+referências que não exigem modelo e contra candidatos treinados sem peso de classe, com
+escolha na validação e o teste usado uma única vez:
+
+- **O piso é alto:** uma regra de duas condições (algum atraso de 90+ dias ou rotativo acima
+  do limite) pega 39% dos inadimplentes com 38% de precisão, sem treinar nada.
+- **Um gradient boosting sem ajuste e sem peso supera o XGBoost publicado**: AUC-PR de 0,393
+  contra 0,370 no teste (diferença confirmada por bootstrap pareado na validação). O XGBoost
+  publicado perde 33% de AUC-PR do treino para a validação, por treinar 300 árvores sem parada
+  antecipada.
+- **O peso de classe só desloca o limiar — e infla as probabilidades em cerca de 4 vezes.** O
+  XGBoost publicado prevê em média 29% de inadimplência para uma taxa real de 6,9%; sem peso e
+  com o limiar ajustado ao mesmo recall, 95,6% das decisões são idênticas e o modelo fica
+  calibrado. A correção de prior $p' = p / (p + w(1-p))$ conserta o número sem retreinar e sem
+  mudar decisão. Os valores da coluna "Prob. média" abaixo são probabilidades infladas.
+
 ### Recorte por faixa etária
 
 Idade é atributo protegido. Afirmar que o modelo não discrimina sem medir por grupo é
@@ -1474,6 +1492,7 @@ docs/monitoring_plan.md        Métricas de produção, de onde vem cada limiar 
 docs/governanca.md             Base legal, dado tratado, retenção, equidade, causalidade, direitos
 docs/images/                   Prints do relatório de drift, do MLflow e do Grafana
 notebooks/01_eda.ipynb         Análise exploratória: qualidade, viés de seleção, poder preditivo, idade
+notebooks/03_baseline.ipynb    Baseline: piso sem modelo, candidatos, calibração, limiar, overfitting
 notebooks/02_analise_causal.ipynb  Análise causal: idade e risco (mediação, seleção) e causas da degradação
 tests/                         Suíte espelhando a estrutura de src/
 ```

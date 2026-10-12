@@ -15,6 +15,12 @@ na própria etapa; os atuais estão no README.
   e AUC univariada por variável, correlações, idade e risco, e os limites da base (sem tempo,
   sem valores monetários, uma só variável demográfica). `make eda` reexecuta; dependências
   no grupo opcional `notebooks`.
+- `notebooks/03_baseline.ipynb`: piso sem modelo (regra de duas condições: recall 0,39 com
+  precisão 0,38), cinco candidatos com bootstrap pareado, curvas PR e ROC, calibração, limiar
+  por margem de custo, matriz de confusão e overfitting. Um gradient boosting sem ajuste nem
+  peso supera o XGBoost publicado (AUC-PR 0,393 contra 0,370 no teste); o peso de classe só
+  desloca o limiar e infla as probabilidades do modelo publicado em cerca de 4 vezes.
+  `make baseline` reexecuta.
 - `notebooks/02_analise_causal.ipynb`: análise causal com grafo explícito. Parte 1, idade e
   risco: a seleção da limpeza atenua a razão de risco entre 18-25 e 61+ (3,73× para 3,05×), e
   73% a 80% do excesso de risco de 26-60 anos acompanha o comportamento de crédito, sobretudo
