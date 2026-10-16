@@ -393,13 +393,13 @@ escolha na validação e o teste usado uma única vez:
 
 - **O piso é alto:** uma regra de duas condições (algum atraso de 90+ dias ou rotativo acima
   do limite) pega 39% dos inadimplentes com 38% de precisão, sem treinar nada.
-- **Um gradient boosting sem ajuste e sem peso supera o XGBoost publicado**: AUC-PR de 0,393
-  contra 0,370 no teste (diferença confirmada por bootstrap pareado na validação). O XGBoost
+- **Um gradient boosting sem ajuste e sem peso supera o XGBoost publicado**: AUC-PR de 0,392
+  contra 0,372 no teste (diferença confirmada por bootstrap pareado na validação). O XGBoost
   publicado perde 33% de AUC-PR do treino para a validação, por treinar 300 árvores sem parada
   antecipada.
 - **O peso de classe só desloca o limiar — e infla as probabilidades em cerca de 4 vezes.** O
   XGBoost publicado prevê em média 29% de inadimplência para uma taxa real de 6,9%; sem peso e
-  com o limiar ajustado ao mesmo recall, 95,6% das decisões são idênticas e o modelo fica
+  com o limiar ajustado ao mesmo recall, 95,5% das decisões são idênticas e o modelo fica
   calibrado. A correção de prior $p' = p / (p + w(1-p))$ conserta o número sem retreinar e sem
   mudar decisão. Os valores da coluna "Prob. média" abaixo são probabilidades infladas.
 
@@ -1077,7 +1077,7 @@ modo que só um deles precise de suposição sobre o rótulo.
 - **Só a mudança na relação entre perfil e risco degrada o modelo.** Inflação de 40% leva o
   PSI da renda a 0,26 sem mover a AUC-ROC; uma carteira mais jovem leva o PSI da idade a
   0,64 e o modelo continua calibrado. Uma crise em que 4% dos adimplentes passam a inadimplir
-  derruba a AUC-ROC de 0,852 para 0,730 — e responde por cerca de 100% da queda num
+  derruba a AUC-ROC de 0,853 para 0,730 — e responde por cerca de 100% da queda num
   experimento fatorial com os três choques.
 - **Nenhum sinal sem rótulo vê a crise isolada.** PSI das variáveis, PSI do score e taxa de
   aprovação ficam exatamente iguais. A taxa de aprovação acompanha a degradação nesta seção
@@ -1086,7 +1086,7 @@ modo que só um deles precise de suposição sobre o rótulo.
 - **Onde o *concept drift* cai decide o dano.** Os mesmos novos inadimplentes elevam a
   AUC-ROC se estão entre quem o modelo já via como arriscado e a derrubam para 0,574 se
   estão entre quem ele via como seguro.
-- **Idade:** de 73% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
+- **Idade:** de 74% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
   acompanha o comportamento de crédito, sobretudo o uso do rotativo — retirar a idade do
   modelo removeria só a parte direta. A limpeza da base atenua a diferença entre idades:
   razão de risco entre 18-25 e 61+ de 3,73× no bruto contra 3,05× na base limpa.
@@ -1303,14 +1303,14 @@ teste. As duas diferenças acima resistem ao bootstrap (a razão 4/5 de 18-25 e 
 de 0,80 em 100% das reamostras; o recall de 61+ é significativamente menor). Ela acrescenta
 três medições:
 
-- **Entre bons pagadores, o tratamento não é igual:** o modelo recusa 28,6% dos jovens de 18-25
-  que pagariam em dia, contra 6,2% dos idosos — 4,6 vezes mais.
+- **Entre bons pagadores, o tratamento não é igual:** o modelo recusa 30,9% dos jovens de 18-25
+  que pagariam em dia, contra 6,1% dos idosos — 5,1 vezes mais.
 - **Para o mesmo score, o risco real é parecido em todas as faixas:** o modelo é aproximadamente
   calibrado por idade. Com risco real diferente entre as faixas e o mesmo limiar para todas,
   recusar mais jovens bons pagadores e deixar passar mais inadimplentes idosos são duas
   consequências do mesmo fato — as duas métricas não se contradizem.
 - **A idade, sozinha, pesa muito acima dos 60 anos:** com renda, crédito e histórico idênticos,
-  57% dos jovens recusados seriam aprovados se tivessem 68 anos.
+  55% dos jovens recusados seriam aprovados se tivessem 68 anos.
 
 A auditoria também mede três políticas de limiar por faixa: igualar a taxa de bons pagadores
 recusados leva a razão 4/5 de todas as faixas para perto de 1 ao custo de cerca de 2 pontos de
@@ -1563,7 +1563,7 @@ Dívida declarada é maturidade; dívida escondida que o leitor descobre é defe
   precisa entrar em qualquer discussão de adoção, não ser escondido atrás do recall.
 - **O modelo trata as faixas etárias de forma desigual, e não foi alterado.** A auditoria
   condicional (`notebooks/04_equidade.ipynb`) mostra que, entre bons pagadores, os jovens de
-  18-25 são recusados 4,6 vezes mais que os idosos, e que o modelo usa a idade com muita força
+  18-25 são recusados 5,1 vezes mais que os idosos, e que o modelo usa a idade com muita força
   acima dos 60 anos. As mitigações medidas trocam uma desigualdade por outra sem ganho claro de
   confiabilidade; a alternativa preferida, caso o tema seja retomado — treinar com a idade e
   neutralizá-la na decisão —, ainda não foi medida.
@@ -1632,7 +1632,7 @@ E as que a camada de governança acrescenta — detalhe em
 - **A explicação individual existe como análise, não no produto.**
   `notebooks/05_explicabilidade.ipynb` explica cada decisão pelos fatores que pesaram contra
   e a favor (SHAP exato do XGBoost), mas nem a API nem `make consultar-decisao` a devolvem
-  ainda. Com o modelo atual, a idade estaria entre os três principais motivos de 86% das
+  ainda. Com o modelo atual, a idade estaria entre os três principais motivos de 80% das
   recusas de 18-25 anos.
 
 ### Continuidade

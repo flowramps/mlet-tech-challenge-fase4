@@ -5,7 +5,13 @@ versão tem uma tag no commit de merge correspondente (`git checkout v0.2.0` dev
 repositório exatamente como a Etapa 2 o deixou). Os números citados abaixo são os medidos
 na própria etapa; os atuais estão no README.
 
-## Não lançado
+## [1.2.0] — análises de ciência de dados e o alcance de cada conclusão
+
+Cinco notebooks examinam o modelo publicado de fora: a base antes de qualquer modelo, as
+causas da diferença entre idades e da degradação, o que o modelo ganha de uma regra sem
+modelo, como ele trata cada faixa etária e por que decide o que decide. A metodologia
+delimita o que cada número autoriza concluir, e a API passa a aplicar o contrato antes da
+inferência.
 
 ### Adicionado
 - `notebooks/01_eda.ipynb`: análise exploratória feita só sobre o arquivo de dados —
@@ -22,28 +28,28 @@ na própria etapa; os atuais estão no README.
   custos reais, que a base não contém.
 - `notebooks/05_explicabilidade.ipynb`: explicação das decisões do modelo publicado com o
   SHAP exato do XGBoost, válido também para a probabilidade corrigida. O corte de 0,5 equivale
-  a recusar quem tem risco acima da média (6,94%); o uso do rotativo responde por 30% do que
+  a recusar quem tem risco acima da média (6,94%); o uso do rotativo responde por 33% do que
   move as notas; a idade age em degraus aos 55 e aos 64 anos e aparece entre os três
-  principais motivos de 86% das recusas de 18-25 anos; renda muito baixa reduz o risco, um
+  principais motivos de 80% das recusas de 18-25 anos; renda muito baixa reduz o risco, um
   defeito de registro aprendido como sinal. `make explicabilidade` reexecuta. A governança
   deixa de dizer que a explicação individual não é entregue.
 - `notebooks/04_equidade.ipynb`: auditoria de equidade do modelo publicado no teste, nas
   quatro faixas etárias. Bootstrap confirma a razão 4/5 abaixo de 0,80 para 18-40 e o recall
-  menor de 61+; entre bons pagadores, 18-25 é recusado 4,6 vezes mais que 61+ (28,6% contra
-  6,2%); o modelo é aproximadamente calibrado por faixa; trocar só a idade por 68 anos aprovaria
-  57% dos jovens recusados; três políticas de limiar por faixa medidas. `make equidade`
+  menor de 61+; entre bons pagadores, 18-25 é recusado 5,1 vezes mais que 61+ (30,9% contra
+  6,1%); o modelo é aproximadamente calibrado por faixa; trocar só a idade por 68 anos aprovaria
+  55% dos jovens recusados; três políticas de limiar por faixa medidas. `make equidade`
   reexecuta.
 - `notebooks/03_baseline.ipynb`: piso sem modelo (regra de duas condições: recall 0,39 com
   precisão 0,38), cinco candidatos com bootstrap pareado, curvas PR e ROC, calibração, limiar
   por margem de custo, matriz de confusão e overfitting. Um gradient boosting sem ajuste nem
-  peso supera o XGBoost publicado (AUC-PR 0,393 contra 0,370 no teste); o peso de classe só
+  peso supera o XGBoost publicado (AUC-PR 0,392 contra 0,372 no teste); o peso de classe só
   desloca o limiar e infla as probabilidades do modelo publicado em cerca de 4 vezes.
   `make baseline` reexecuta.
 - `notebooks/02_analise_causal.ipynb`: análise causal com grafo explícito. Parte 1, idade e
   risco: a seleção da limpeza atenua a razão de risco entre 18-25 e 61+ (3,73× para 3,05×), e
-  73% a 80% do excesso de risco de 26-60 anos acompanha o comportamento de crédito, sobretudo
+  74% a 80% do excesso de risco de 26-60 anos acompanha o comportamento de crédito, sobretudo
   o uso do rotativo. Parte 2, degradação: com modelo e choques próprios (inflação, novos
-  perfis, crise), só a crise degrada o modelo (AUC-ROC 0,852 para 0,730), responde por cerca
+  perfis, crise), só a crise degrada o modelo (AUC-ROC 0,853 para 0,730), responde por cerca
   de 100% da queda no fatorial 2³ e não move PSI nem taxa de aprovação. `make causal`
   reexecuta.
 - `docs/metodologia.md` formaliza a questão de pesquisa, as hipóteses H1–H4, os estimandos,
@@ -61,6 +67,13 @@ na própria etapa; os atuais estão no README.
 - `/score` agora rejeita com HTTP 422 idade, renda, dependentes, razão de dívida e
   contadores de atraso fora do contrato antes de chamar o modelo. O schema Pydantic e o
   contrato Pandera consomem os mesmos limites de `credito.schema`.
+- Os notebooks de análise causal, baseline, equidade e explicabilidade foram reexecutados
+  contra o modelo publicado. Haviam sido gerados com um modelo retreinado em outro sistema
+  operacional, e o XGBoost não reproduz o mesmo modelo entre sistemas; os números citados
+  no README, na governança e no CHANGELOG passam a ser os do modelo que a API serve (razão
+  4/5 de 18-25 igual a 0,7030, como em `metrics.json`). As conclusões se mantêm; mudam
+  tamanhos — por exemplo, bons pagadores de 18-25 recusados 5,1 vezes mais que os de 61+,
+  e a idade entre os três principais motivos de 80% das recusas de 18-25.
 
 ## [1.1.1] — o timeout que a validação final achou
 
