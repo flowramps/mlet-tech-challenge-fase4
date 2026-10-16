@@ -224,24 +224,23 @@ direto da idade pelo modelo:
 
 - **As duas diferenças são reais.** Em 2.000 reamostras por bootstrap, a razão 4/5 de 18-25
   e 26-40 fica abaixo de 0,80 em todas, e o recall de 61+ é significativamente menor que o de
-  18-25 (diferença de −0,26, intervalo de 95% de −0,40 a −0,10).
+  18-25 (diferença de −0,29, intervalo de 95% de −0,42 a −0,13).
 - **Entre bons pagadores, o tratamento não é igual.** Entre quem pagaria em dia, o modelo
-  recusa 28,6% dos jovens de 18-25 e 6,2% dos idosos de 61+ — 4,6 vezes mais. Essa
+  recusa 30,9% dos jovens de 18-25 e 6,1% dos idosos de 61+ — 5,1 vezes mais. Essa
   comparação já desconta o risco: todos ali são bons pagadores.
 - **Para o mesmo score, o risco real é parecido em todas as faixas.** O modelo é
   aproximadamente calibrado por idade. Com risco real diferente entre as faixas e o mesmo
   limiar para todas, recusar mais jovens bons pagadores e deixar passar mais inadimplentes
   idosos são duas consequências do mesmo fato: as duas métricas acima não se contradizem.
 - **A idade, sozinha, pesa muito acima dos 60 anos.** Com renda, crédito e histórico
-  idênticos, 57% dos jovens de 18-25 recusados seriam aprovados se tivessem 68 anos; com 50
+  idênticos, 55% dos jovens de 18-25 recusados seriam aprovados se tivessem 68 anos; com 50
   anos, 13%.
 
-(Os valores do notebook diferem em décimos dos da tabela acima porque `make train` retreina
-o modelo em cada ambiente, e o XGBoost não reproduz o mesmo modelo entre sistemas
-operacionais. As conclusões coincidem.)
+(Os valores do notebook são os do modelo publicado: a razão 4/5 e o recall por faixa
+coincidem com a tabela acima e com `metrics.json`.)
 
 O confundimento é tratado em [`notebooks/02_analise_causal.ipynb`](../notebooks/02_analise_causal.ipynb):
-no risco real, de 73% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
+no risco real, de 74% a 80% do excesso de risco das faixas de 26 a 60 anos em relação a 61+
 acompanha o comportamento de crédito, sobretudo o uso do rotativo.
 
 **Uma única métrica de equidade daria o veredito de uma direção e esconderia a outra.** É
@@ -275,7 +274,7 @@ essa medição seja um comando, não um projeto.
 **O que a medição mostrou.** A auditoria mediu três políticas de limiar por faixa — igualar o
 recall, igualar a taxa de bons pagadores recusados e igualar a aprovação. Igualar os bons
 pagadores recusados leva a razão 4/5 de todas as faixas para perto de 1 ao custo de cerca de
-2 pontos de recall total (0,697 para 0,678); nenhuma política iguala todos os critérios ao
+2 pontos de recall total (0,692 para 0,672); nenhuma política iguala todos os critérios ao
 mesmo tempo, porque o risco real difere entre as faixas.
 
 **Decisão: o modelo publicado não é alterado.** Ele cumpre o que o problema pede, com
@@ -354,15 +353,15 @@ demonstrada em [`notebooks/05_explicabilidade.ipynb`](../notebooks/05_explicabil
 com os valores SHAP que o próprio XGBoost calcula. Eles dividem a nota de cada pedido entre
 as variáveis, de forma exata, e valem também para a probabilidade corrigida pela fórmula de
 prior: cada decisão pode ser explicada pelos fatores que pesaram contra e a favor, em
-linguagem comum — por exemplo, *"pesaram contra: usa 100% do limite do rotativo, renda de
-1.640, tem 25 anos; pesou a favor: nenhum atraso"*. O corte de 0,5 do modelo publicado
+linguagem comum — por exemplo, *"pesaram contra: usa 100% do limite do rotativo, tem 24
+anos, renda de 2.500; pesou a favor: nenhum atraso"*. O corte de 0,5 do modelo publicado
 equivale a recusar quem tem risco estimado acima da média da base (6,94%).
 
 Globalmente, o modelo se apoia no comportamento de crédito: o uso do rotativo responde por
-30% do que move as notas, e os atrasos, por 33%. Dois comportamentos pedem atenção:
+33% do que move as notas, e os atrasos, por 32%. Dois comportamentos pedem atenção:
 
-- **a idade é a quarta variável mais usada** (9,3%) e age em degraus, aos 55 e aos 64 anos.
-  Ela aparece entre os três principais motivos de **86% das recusas de 18-25 anos** (91% entre
+- **a idade é a quarta variável mais usada** (8,8%) e age em degraus, aos 55 e aos 64 anos.
+  Ela aparece entre os três principais motivos de **80% das recusas de 18-25 anos** (85% entre
   bons pagadores recusados): uma explicação individual dada a um jovem recusado, na maioria
   dos casos, citaria a idade. A alternativa da seção 4 — treinar com a idade e neutralizá-la
   na decisão — a retiraria das explicações;
