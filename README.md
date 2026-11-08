@@ -14,14 +14,14 @@
 
 | | Medido |
 |---|---|
-| **Baseline** | XGBoost com AUC-PR **0,3716** — 5,4× o acaso — e recall da classe positiva **0,6915** |
+| **Baseline** | XGBoost com AUC-PR **0,3716** — 5,4× o acaso — e recall da classe positiva **0,6915**; um gradient boosting sem ajuste chega a **0,392** no mesmo teste, e o peso de classe infla as probabilidades em cerca de **4×** |
 | **Contrato** | seis regras; um lote adulterado é bloqueado com a contagem exata de cada defeito |
 | **Degradação silenciosa** | sob seis meses de mudança simulada, o recall cai **45,1%** e o poder discriminativo acima do piso, **59,2%** — sem uma única linha inválida |
 | **De onde ela vem** | no cenário sintético, o efeito isolado do concept drift corresponde a **48,0%** da queda conjunta; os efeitos isolados das duas variáveis de maior PSI somam **3,1%** |
-| **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); calibrada numa janela de 2.000 decisões, vira uma regra de alerta no Prometheus — vista disparando com tráfego do mês 6 |
+| **Alarme sem rótulo** | a taxa de aprovação acompanha a degradação real mês a mês (Spearman −1,0000, p exato 0,002778); calibrada numa janela de 2.000 decisões, vira uma regra de alerta no Prometheus — vista disparando com tráfego do mês 6. Ela detecta a mudança na população que acompanha a degradação: numa crise isolada, sem mudança nas variáveis, **não se move** |
 | **Privacidade** | sem CPF, mas **53,30%** das pessoas são únicas em idade + renda + dependentes; generalizar reduz a exposição a **0,01%** |
-| **Equidade** | duas métricas formais que **discordam**: os 4/5 apontam os jovens, a igualdade de oportunidade aponta os idosos |
-| **Engenharia** | `make reproduzir` regenera todo número deste README; imagem de 1,25 GB sem vulnerabilidade HIGH corrigível; cobertura de 98% com piso na CI |
+| **Equidade** | duas métricas formais que **discordam**: os 4/5 apontam os jovens, a igualdade de oportunidade aponta os idosos; entre bons pagadores, 18-25 é recusado **5,1×** mais que 61+ |
+| **Engenharia** | `make reproduzir` regenera todo número deste README, os dos notebooks inclusive; imagem de 1,25 GB sem vulnerabilidade HIGH corrigível; cobertura de 98% com piso na CI |
 
 ## Onde está cada exigência
 
@@ -75,9 +75,10 @@ resto do documento sustenta com número.
 7. [Monitoramento de drift](#monitoramento-de-drift)
 8. [Observabilidade em produção](#observabilidade-em-produção)
 9. [Governança e proteção de dados](#governança-e-proteção-de-dados)
-10. [Como executar](#como-executar)
-11. [Estrutura do projeto](#estrutura-do-projeto)
-12. [Roadmap](#roadmap)
+10. [Análises de ciência de dados](#análises-de-ciência-de-dados)
+11. [Como executar](#como-executar)
+12. [Estrutura do projeto](#estrutura-do-projeto)
+13. [Roadmap](#roadmap)
 
 ---
 
@@ -339,7 +340,8 @@ partição de treino e avaliada na partição de teste da Referência:
 | com `class_weight="balanced"` | **0,6213** | 0,8474 | 0,3648 |
 
 O modelo sem tratamento tem **acurácia mais alta** (0,9346 contra 0,8474) e identifica
-**um quarto** dos inadimplentes. Quem olhasse só para acurácia escolheria o pior dos dois.
+**um em cada sete** inadimplentes — menos de um quarto do que o modelo com tratamento
+identifica. Quem olhasse só para acurácia escolheria o pior dos dois.
 Um teste de controle (`test_nao_colapsa_na_classe_majoritaria`) mantém essa propriedade
 verificada na suíte, para os dois candidatos.
 
@@ -1344,6 +1346,38 @@ eliminada.
 
 ---
 
+## Análises de ciência de dados
+
+Cinco notebooks examinam a base e o modelo publicado de fora, cada um respondendo a uma
+pergunta. Estão salvos com as saídas — dá para lê-los direto no GitHub — e nenhum altera o
+modelo.
+
+| Notebook | Pergunta | Achado principal | Reexecutar |
+|---|---|---|---|
+| [`01_eda`](notebooks/01_eda.ipynb) | A base é confiável, e o que ela contém? | quem não declara renda (19,82% do arquivo) é mais velho e de menor risco, e a limpeza o exclui; o uso do rotativo chega a 50.708 sem nenhuma regra de plausibilidade | `make eda` |
+| [`02_analise_causal`](notebooks/02_analise_causal.ipynb) | Por que o modelo degrada, e de onde vem a diferença entre idades? | só a mudança na relação entre perfil e risco degrada o modelo, e nenhum sinal sem rótulo a detecta isolada; de 74% a 80% do excesso de risco de 26-60 anos acompanha o comportamento de crédito | `make causal` |
+| [`03_baseline`](notebooks/03_baseline.ipynb) | Quanto o modelo ganha do que não exige modelo, e as probabilidades dele são confiáveis? | um gradient boosting sem ajuste supera o XGBoost publicado (AUC-PR 0,392 contra 0,372 no teste); o peso de classe infla as probabilidades em cerca de 4 vezes | `make baseline` |
+| [`04_equidade`](notebooks/04_equidade.ipynb) | O modelo trata as faixas etárias da mesma forma? | entre bons pagadores, 18-25 é recusado 5,1 vezes mais que 61+; o modelo é calibrado por faixa, e por isso as duas métricas da governança apontam em direções opostas | `make equidade` |
+| [`05_explicabilidade`](notebooks/05_explicabilidade.ipynb) | Por que o modelo decidiu assim? | cada decisão é explicada pelos fatores que pesaram contra e a favor; a idade está entre os três principais motivos de 80% das recusas de 18-25 | `make explicabilidade` |
+
+As dependências ficam no grupo opcional `notebooks`, que `make install` instala. Os
+notebooks 03 a 05 leem o modelo publicado, então pedem `make train` antes; `make reproduzir`
+executa os cinco na ordem certa.
+
+**Aviso de plataforma.** O XGBoost não reproduz o mesmo modelo entre sistemas operacionais.
+Os números dos notebooks 02 a 05 são os do modelo publicado, treinado em Linux; reexecutá-los
+em outro sistema regrava as saídas com um modelo ligeiramente diferente. O notebook 01 não
+depende do modelo e sai idêntico em qualquer sistema.
+
+**As saídas são conferidas na CI.** O job "Notebooks" treina o modelo do zero em Linux,
+reexecuta os notebooks 01, 03, 04 e 05 numa cópia e falha se o texto de alguma saída mudar —
+tabelas e números impressos; horários de execução, imagens e endereços de memória não
+contam. Um número dos notebooks citado neste README não fica velho sem que a CI acuse.
+`make conferir-notebooks` faz a mesma conferência localmente. A análise causal fica de fora
+pelo tempo de execução (~5 min).
+
+---
+
 ## Como executar
 
 | Pré-requisito | Para quê | Validado com |
@@ -1360,14 +1394,17 @@ Nenhuma credencial é necessária: o dataset vem de URL pública, com md5 verifi
 ```bash
 git clone https://github.com/flowramps/mlet-tech-challenge-fase4.git
 cd mlet-tech-challenge-fase4
-make install      # dependências e hooks de pre-commit
+make install      # dependências (inclusive as dos notebooks) e hooks de pre-commit
 make test         # a suíte, antes de qualquer outra coisa
-make reproduzir   # dado → treino → drift → degradação → proxies → alarme → privacidade
+make reproduzir   # dado → treino → drift → degradação → proxies → alarme → privacidade → notebooks
 ```
 
 Verificado num clone limpo: a suíte passa antes de qualquer outro alvo, e `make reproduzir`
 termina em **77,5 s** nesta máquina, com o campeão byte a byte idêntico ao publicado (md5
-`567d4533bf2f46c425d22e59adcd8aac`) e todos os números deste README regenerados.
+`567d4533bf2f46c425d22e59adcd8aac`) e todos os números deste README regenerados. Os cinco
+notebooks, incluídos depois no alvo, acrescentam cerca de 6 minutos e reproduzem as mesmas
+saídas em Linux (ver o aviso de plataforma em
+[Análises de ciência de dados](#análises-de-ciência-de-dados)).
 
 **Passo a passo**, para entender o que cada etapa produz:
 
@@ -1411,6 +1448,12 @@ make verificar-degradacao # degradação monotônica + o contraexperimento que a
 make validar-proxies      # quanto cada proxy sem rótulo antecipa a degradação real
 make auditar-privacidade  # risco de reidentificação da Referência e efeito da generalização
 make calibrar-alarme      # limiar e poder do alarme ao vivo; falha se o limiar publicado divergir
+make eda                  # notebook 01: análise exploratória
+make causal               # notebook 02: análise causal (~5 min)
+make baseline             # notebook 03: piso, candidatos e calibração (requer make train)
+make equidade             # notebook 04: auditoria de equidade (requer make train)
+make explicabilidade      # notebook 05: explicação das decisões (requer make train)
+make conferir-notebooks   # reexecuta os notebooks numa cópia; falha se as saídas divergirem
 ```
 
 E a pilha de observabilidade (requer `make train` antes, para ter um campeão para servir):
@@ -1510,6 +1553,7 @@ scripts/validar_proxies.py     Mede quanto cada proxy sem rótulo antecipa a deg
 scripts/gerar_trafego.py       Tráfego real contra a API, para os painéis terem o que mostrar
 scripts/auditar_privacidade.py Risco de reidentificação, valor exato contra generalizado
 scripts/calibrar_alarme.py     Calibração do alarme e conferência do limiar publicado
+scripts/conferir_notebooks.py  Conferência das saídas dos notebooks contra uma reexecução (CI)
 scripts/consultar_decisao.py   Reconstrução de uma decisão para revisão (art. 20)
 scripts/expurgar_decisoes.py   Retenção executável do registro de decisão
 docker/prometheus/             Scrape, regras de alerta e o teste delas (promtool)

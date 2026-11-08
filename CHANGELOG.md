@@ -5,6 +5,29 @@ versão tem uma tag no commit de merge correspondente (`git checkout v0.2.0` dev
 repositório exatamente como a Etapa 2 o deixou). Os números citados abaixo são os medidos
 na própria etapa; os atuais estão no README.
 
+## Não lançado
+
+### Alterado
+- `make reproduzir` passa a reexecutar os cinco notebooks de análise, e `make install` instala
+  o grupo `notebooks` — a afirmação de que o alvo regenera todo número do README volta a ser
+  verdadeira, agora que o README cita números dos notebooks.
+- O README ganha a seção "Análises de ciência de dados" (os cinco notebooks, a pergunta e o
+  achado principal de cada um, como reexecutar e o aviso de plataforma) e uma entrada no
+  índice. A tabela "Em uma tela" passa a incluir os achados dos notebooks e a ressalva de que
+  a taxa de aprovação não se move numa crise isolada.
+
+### Adicionado
+- Job "Notebooks" na CI e `make conferir-notebooks` (`scripts/conferir_notebooks.py`):
+  reexecutam os notebooks 01, 03, 04 e 05 numa cópia, contra um modelo treinado do zero, e
+  falham se o texto das saídas divergir do salvo. A comparação ignora horários, imagens,
+  endereços de memória e avisos — falha quando um número muda, e só então. A análise causal
+  fica de fora pelo tempo.
+
+### Corrigido
+- O modelo sem tratamento de desbalanceamento identifica um em cada sete inadimplentes, não
+  "um quarto" deles (README e model card): o quarto era a proporção em relação ao modelo com
+  tratamento.
+
 ## [1.2.0] — análises de ciência de dados e o alcance de cada conclusão
 
 Cinco notebooks examinam o modelo publicado de fora: a base antes de qualquer modelo, as
