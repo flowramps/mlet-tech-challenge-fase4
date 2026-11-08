@@ -131,7 +131,8 @@ hiperparâmetros, mudando apenas o peso da classe:
 | sem `class_weight` | 0,1436 | **0,9346** | 0,3590 |
 | com `class_weight="balanced"` | **0,6213** | 0,8474 | 0,3648 |
 
-O modelo sem tratamento tem acurácia mais alta e encontra um quarto dos inadimplentes.
+O modelo sem tratamento tem acurácia mais alta e encontra um em cada sete inadimplentes —
+menos de um quarto do que o modelo com tratamento encontra.
 
 ### Desempenho por faixa etária
 

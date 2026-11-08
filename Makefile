@@ -1,14 +1,14 @@
 # Interface do projeto: o README manda rodar `make X` e `make help` lista tudo.
 
 .PHONY: help install lint format test data train monitor demo-contrato verificar-degradacao \
-	validar-proxies auditar-privacidade calibrar-alarme eda baseline causal equidade explicabilidade consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
+	validar-proxies auditar-privacidade calibrar-alarme eda baseline causal equidade explicabilidade conferir-notebooks consultar-decisao expurgar-decisoes reproduzir mlflow-up api observabilidade-up observabilidade-down traffic
 
 help:             ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install:          ## Instala dependências e hooks
-	poetry install
+install:          ## Instala dependências (inclusive as dos notebooks) e hooks
+	poetry install --with notebooks
 	poetry run pre-commit install
 
 lint:             ## Verifica estilo e formatação
@@ -67,7 +67,10 @@ equidade:         ## Reexecuta a auditoria de equidade do modelo publicado (requ
 explicabilidade:  ## Reexecuta a explicação das decisões do modelo publicado (requer `make train` e `poetry install --with notebooks`)
 	poetry run python -m nbconvert --to notebook --execute --inplace notebooks/05_explicabilidade.ipynb
 
-reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, alarme, privacidade)
+conferir-notebooks: ## Reexecuta os notebooks numa cópia e falha se o texto das saídas divergir do salvo (requer `make train`)
+	poetry run python scripts/conferir_notebooks.py
+
+reproduzir:       ## Regenera, do zero, todo número que o README publica (dado, treino, drift, alarme, privacidade, notebooks)
 	$(MAKE) data
 	$(MAKE) train
 	$(MAKE) monitor
@@ -75,6 +78,11 @@ reproduzir:       ## Regenera, do zero, todo número que o README publica (dado,
 	$(MAKE) validar-proxies
 	$(MAKE) calibrar-alarme
 	$(MAKE) auditar-privacidade
+	$(MAKE) eda
+	$(MAKE) causal
+	$(MAKE) baseline
+	$(MAKE) equidade
+	$(MAKE) explicabilidade
 
 mlflow-up:        ## Sobe a UI do MLflow contra o mesmo SQLite que `make monitor` grava
 	MLFLOW_DISABLE_TELEMETRY=true MLFLOW_DISABLE_AGENT_HINT=1 \

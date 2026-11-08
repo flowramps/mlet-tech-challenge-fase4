@@ -74,6 +74,36 @@ jobs:
       - name: Rodar a suíte com cobertura
         run: poetry run pytest -ra --cov=credito --cov-report=term-missing
 
+  # Os notebooks são versionados com as saídas, e o README cita números tirados delas. Este job
+  # treina o modelo do zero, reexecuta os notebooks e falha se o texto das saídas mudar — o
+  # número velho no README deixa de poder passar em silêncio. A análise causal (02) fica de
+  # fora pelo tempo (~5 min); ver `scripts/conferir_notebooks.py`.
+  notebooks:
+    name: Notebooks (saídas reproduzem)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Instalar Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Instalar dependências
+        run: poetry install --no-interaction --with notebooks
+
+      - name: Treinar o modelo
+        run: poetry run python -m credito.pipeline.training
+
+      - name: Conferir as saídas dos notebooks
+        run: poetry run python scripts/conferir_notebooks.py
+
   build:
     name: Build (imagem de inferência)
     runs-on: ubuntu-latest
